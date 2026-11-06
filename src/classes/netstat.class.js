@@ -25,15 +25,10 @@ class Netstat {
         </div>`;
 
         this.offline = false;
-        this.lastconn = {finished: false}; // Prevent geoip lookup attempt until maxminddb is loaded
+        this.lookingUpPublicIP = false;
         this.iface = null;
         this.failedAttempts = {};
         this.runsBeforeGeoIPUpdate = 0;
-
-        this._httpsAgent = new require("https").Agent({
-            keepAlive: false,
-            maxSockets: 10
-        });
 
         // Init updaters
         this.updateInfo();
@@ -41,20 +36,11 @@ class Netstat {
             this.updateInfo();
         }, 2000);
 
-        // Init GeoIP integrated backend
+        // GeoIP lookups happen in the main process (see "geo-lookup" in _api.js).
+        // get(ip) resolves to {latitude, longitude}, or null if unknown or the database isn't ready yet.
         this.geoLookup = {
-            get: () => null
+            get: ip => window.neodex.invoke("geo-lookup", ip).catch(() => null)
         };
-        let geolite2 = require("geolite2-redist");
-        let maxmind = require("maxmind");
-        geolite2.downloadDbs(require("path").join(window._appInfo.userData, "geoIPcache")).then(() => {
-           geolite2.open('GeoLite2-City', path => {
-                return maxmind.open(path);
-            }).catch(e => {throw e}).then(lookup => {
-                this.geoLookup = lookup;
-                this.lastconn.finished = true;
-            });
-        });
     }
     updateInfo() {
         window.si.networkInterfaces().then(async data => {
@@ -104,36 +90,24 @@ class Netstat {
             if (net.ip4 === "127.0.0.1") {
                 offline = true;
             } else {
-                if (this.runsBeforeGeoIPUpdate === 0 && this.lastconn.finished) {
-                    this.lastconn = require("https").get({host: "myexternalip.com", port: 443, path: "/json", localAddress: net.ip4, agent: this._httpsAgent}, res => {
-                        let rawData = "";
-                        res.on("data", chunk => {
-                            rawData += chunk;
-                        });
-                        res.on("end", () => {
-                            try {
-                                let data = JSON.parse(rawData);
-                                this.ipinfo = {
-                                    ip: data.ip,
-                                    geo: this.geoLookup.get(data.ip).location
-                                };
-
-                                let ip = this.ipinfo.ip;
-                                document.querySelector("#mod_netstat_innercontainer > div:nth-child(2) > h2").innerHTML = window._escapeHtml(ip);
-
-                                this.runsBeforeGeoIPUpdate = 10;
-                            } catch(e) {
-                                this.failedAttempts[e] = (this.failedAttempts[e] || 0) + 1;
-                                if (this.failedAttempts[e] > 2) return false;
-                                console.warn(e);
-                                console.info(rawData.toString());
-                                let electron = require("electron");
-                                electron.ipcRenderer.send("log", "note", "NetStat: Error parsing data from myexternalip.com");
-                                electron.ipcRenderer.send("log", "debug", `Error: ${e}`);
-                            }
-                        });
-                    }).on("error", e => {
-                        // Drop it
+                if (this.runsBeforeGeoIPUpdate === 0 && !this.lookingUpPublicIP && await window.neodex.invoke("geo-ready")) {
+                    // Public IP (from myexternalip.com) and its location, looked up by the main process
+                    this.lookingUpPublicIP = true;
+                    window.neodex.invoke("net-public-ip", net.ip4).then(async ip => {
+                        if (!ip) throw new Error("No IP in response");
+                        const geo = await this.geoLookup.get(ip);
+                        if (!geo) throw new Error(`No location for ${ip}`);
+                        this.ipinfo = { ip, geo };
+                        document.querySelector("#mod_netstat_innercontainer > div:nth-child(2) > h2").innerHTML = window._escapeHtml(ip);
+                        this.runsBeforeGeoIPUpdate = 10;
+                    }).catch(e => {
+                        const key = String(e && e.message);
+                        this.failedAttempts[key] = (this.failedAttempts[key] || 0) + 1;
+                        if (this.failedAttempts[key] > 2) return;
+                        window.neodex.send("log", "note", "NetStat: Could not get the public IP address");
+                        window.neodex.send("log", "debug", `Error: ${key}`);
+                    }).finally(() => {
+                        this.lookingUpPublicIP = false;
                     });
                 } else if (this.runsBeforeGeoIPUpdate !== 0) {
                     this.runsBeforeGeoIPUpdate = this.runsBeforeGeoIPUpdate - 1;
@@ -153,31 +127,9 @@ class Netstat {
             }
         });
     }
+    // TCP connect time in ms, measured by the main process (see "net-ping" in _api.js)
     ping(target, port, local) {
-        return new Promise((resolve, reject) => {
-            let s = new require("net").Socket();
-            let start = process.hrtime();
-
-            s.connect({
-                port,
-                host: target,
-                localAddress: local,
-                family: 4
-            }, () => {
-                let time_arr = process.hrtime(start);
-                let time = (time_arr[0] * 1e9 + time_arr[1]) / 1e6;
-                resolve(time);
-                s.destroy();
-            });
-            s.on('error', e => {
-                s.destroy();
-                reject(e);
-            });
-            s.setTimeout(1900, function() {
-                s.destroy();
-                reject(new Error("Socket timeout"));
-            });
-        });
+        return window.neodex.invoke("net-ping", target, port, local);
     }
 }
 
