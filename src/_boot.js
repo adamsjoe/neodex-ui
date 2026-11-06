@@ -207,12 +207,13 @@ function createWindow(settings) {
         webPreferences: {
             devTools: true,
             preload: path.join(__dirname, "_preload.js"),
-            // TODO: enable contextIsolation + sandbox once the renderer stops using Node APIs directly
-            sandbox: false,
-            contextIsolation: false,
+            // The page has no Node access: it reaches the main process only through the preload's
+            // window.neodex API (an allowlist of IPC channels)
+            sandbox: true,
+            contextIsolation: true,
             backgroundThrottling: false,
             webSecurity: true,
-            nodeIntegration: true,
+            nodeIntegration: false,
             nodeIntegrationInSubFrames: false,
             allowRunningInsecureContent: false,
             experimentalFeatures: settings.experimentalFeatures || false

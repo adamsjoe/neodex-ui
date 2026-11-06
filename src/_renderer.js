@@ -1,9 +1,5 @@
-// Disable eval(). The CSP in ui.html has no 'unsafe-eval', but Chromium doesn't enforce that while
-// nodeIntegration is on, so this override is the only thing blocking it. It's a weak guard (new Function()
-// and Node's vm module get around it); the real fix is contextIsolation, after which the CSP applies.
-window.eval = global.eval = function () {
-    throw new Error("eval() is disabled for security reasons.");
-};
+// eval() and new Function() are blocked by the CSP in ui.html (no 'unsafe-eval'); the page runs isolated,
+// sandboxed and without Node, so the CSP applies (tested in tests/e2e/security.spec.js).
 
 // Security helpers (see src/lib/escape.js)
 const {escapeHtml, purifyCss} = require("./lib/escape.js");

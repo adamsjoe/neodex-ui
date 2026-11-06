@@ -20,13 +20,13 @@ The upstream GitHub Actions workflows were removed in November 2026: they target
 
 ## Security
 
-- [ ] Enable `contextIsolation` and the sandbox with a preload/`contextBridge` API. Requires moving the renderer's direct `fs` use (file browser, settings, themes) behind IPC. Then the CSP's missing `'unsafe-eval'` takes effect (Chromium ignores it while `nodeIntegration` is on): drop the `window.eval` override in `_renderer.js` and extend the eval test in `security.spec.js` to cover `new Function()`.
-- [ ] Remove the remaining inline `onclick` handlers (keyboard, file browser, shell tabs) so the CSP can drop `'unsafe-inline'`. Includes the disk-path string in `filesystem.class.js` (`readFS("${e.path}")`).
+- [x] `contextIsolation`, sandbox and no Node integration for the UI page: it reaches the main process only through the preload's `window.neodex` API (an allowlist of IPC channels). The UI is bundled with esbuild (`npm run build:renderer`), and the CSP now blocks inline scripts and `eval()`.
+- [x] No inline event handlers; CSP `script-src` without `'unsafe-inline'`.
 - [ ] Make the `myexternalip.com` lookup (runs on every start) opt-in.
 
 ## Upgrades and platforms
 
-- [ ] Verify packaging (`prebuild-*` / `build-*`, electron-builder 26, `prebuild-minify.js`). On macOS, node-pty's `spawn-helper` must stay executable and be unpacked from the asar archive (`asarUnpack`), or shells fail with `posix_spawnp failed` (`scripts/postinstall.js` handles this for development installs).
+- [ ] Verify packaging (`prebuild-*` / `build-*`, electron-builder 26, `prebuild-minify.js`); the `prebuild-*` scripts now build the UI bundle first. On macOS, node-pty's `spawn-helper` must stay executable and be unpacked from the asar archive (`asarUnpack`), or shells fail with `posix_spawnp failed` (`scripts/postinstall.js` handles this for development installs).
 - [ ] Test on macOS and Linux. macOS: tab process names use `ps --no-headers`, which BSD `ps` doesn't support.
 - [ ] Replace `geolite2-redist` (deprecated; MaxMind licensing changed) for the globe's GeoIP lookups.
 - [ ] Review the 8 `npm audit` findings at the root.

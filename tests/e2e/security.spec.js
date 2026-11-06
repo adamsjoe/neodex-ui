@@ -48,14 +48,18 @@ test("other web contents cannot drive the terminal or call the backend", async (
     expect(await readTerminal(app)).not.toContain("INJECTED_9");
 });
 
-test("page scripts cannot call eval()", async () => {
-    // Only eval() is blocked today, by an override in _renderer.js: Chromium doesn't enforce the CSP's
-    // missing 'unsafe-eval' while nodeIntegration is on. Once contextIsolation is enabled the CSP applies,
-    // and this test should also require new Function() to be blocked (see ROADMAP.md).
+test("page scripts cannot use eval() or new Function()", async () => {
+    // Blocked by the CSP (no 'unsafe-eval'), which applies now the page runs isolated without Node
     const outcome = await inPage(ctx.app, () => {
-        try { window.eval("1 + 1"); return "allowed"; } catch (e) { return e.message; }
+        const attempt = fn => { try { fn(); return "allowed"; } catch (e) { return e.name; } };
+        return { eval: attempt(() => window.eval("1 + 1")), fn: attempt(() => new Function("return 1")()) };
     });
-    expect(outcome).toMatch(/eval\(\) is disabled/);
+    expect(outcome).toEqual({ eval: "EvalError", fn: "EvalError" });
+});
+
+test("the page has no Node.js access", async () => {
+    const globals = await inPage(ctx.app, () => ({ require: typeof require, process: typeof process, module: typeof module }));
+    expect(globals).toEqual({ require: "undefined", process: "undefined", module: "undefined" });
 });
 
 test("no element uses inline event handler attributes", async () => {
