@@ -2,7 +2,7 @@
 // the app's own window.
 const path = require("path");
 const { test, expect } = require("@playwright/test");
-const { launchApp, inPage, readTerminal, runCommand, expectTerminalToContain } = require("./helpers");
+const { launchApp, inPage, clickModalButton, readTerminal, runCommand, expectTerminalToContain } = require("./helpers");
 
 test.describe.configure({ mode: "serial" });
 
@@ -64,5 +64,6 @@ test("modal buttons use real listeners, not inline code", async () => {
     await expect(page.locator("#settingsEditor")).toBeVisible();
     await expect(page.locator(".modal_popup button")).not.toHaveCount(0);
     await expect(page.locator(".modal_popup button[onclick]")).toHaveCount(0);
-    await page.locator(".modal_popup").getByRole("button", { name: "Close" }).click();
+    await clickModalButton(app, "Close");
+    await expect(page.locator("#settingsEditor")).toHaveCount(0);
 });

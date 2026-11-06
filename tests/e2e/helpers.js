@@ -45,6 +45,7 @@ async function launchApp({ settings = {} } = {}) {
         cwd: repoRoot,
         env: Object.assign({}, process.env, {
             NEODEX_USER_DATA: userData,
+            NEODEX_NO_ERROR_DIALOG: "1", // a crash should fail the test with its log, not hang on a modal dialog
             ELECTRON_ENABLE_LOGGING: "1" // renderer console messages also go to stderr
         })
     });
@@ -83,6 +84,20 @@ async function launchApp({ settings = {} } = {}) {
     };
 }
 
+/**
+ * Clicks a modal button by its label, from inside the page. This fires the button's real click listener,
+ * without waiting for the modal's open animation to settle (slow on CI) and without page.evaluate (see inPage).
+ */
+async function clickModalButton(app, label) {
+    const clicked = await inPage(app, text => {
+        const buttons = [...document.querySelectorAll(".modal_popup button")].filter(b => b.textContent === text);
+        if (buttons.length === 0) return false;
+        buttons[buttons.length - 1].click();
+        return true;
+    }, label);
+    expect(clicked, `modal button "${label}" should exist`).toBe(true);
+}
+
 /** Full text of a terminal's buffer (scrollback included). */
 function readTerminal(app, tab = 0) {
     return inPage(app, n => {
@@ -110,6 +125,7 @@ module.exports = {
     inPage,
     waitInPage,
     launchApp,
+    clickModalButton,
     readTerminal,
     runCommand,
     expectTerminalToContain

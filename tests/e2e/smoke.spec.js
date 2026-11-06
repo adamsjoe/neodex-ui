@@ -3,7 +3,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { test, expect } = require("@playwright/test");
-const { launchApp, inPage, waitInPage, runCommand, expectTerminalToContain } = require("./helpers");
+const { launchApp, inPage, waitInPage, clickModalButton, runCommand, expectTerminalToContain } = require("./helpers");
 
 test.describe.configure({ mode: "serial" });
 
@@ -70,7 +70,7 @@ test("settings dialog opens and its buttons work", async () => {
     await expect(modal).toBeVisible();
     await expect(modal.locator("#settingsEditor-shell")).toHaveValue(/.+/);
 
-    await modal.getByRole("button", { name: "Close" }).click();
+    await clickModalButton(app, "Close");
     await expect(page.locator("#settingsEditor")).toHaveCount(0);
 });
 
