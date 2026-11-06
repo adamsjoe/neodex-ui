@@ -212,28 +212,26 @@ class Terminal {
             // prompt. Needed on Windows, where the backend can't read another process's cwd.
             //   OSC 9;9;"<path>"        (Windows Terminal / ConEmu convention, used by our PowerShell & cmd setup)
             //   OSC 7;file://host/path  (common on Unix shells)
+            // (Renderer-side require: paths resolve from ui.html's directory)
+            const {cwdFromOsc9, cwdFromOsc7} = require("./lib/osc.js");
             this._setCwdFromShell = cwd => {
                 if (!cwd || cwd === this.cwd) return;
                 this.cwd = cwd;
                 this.oncwdchange(this.cwd);
                 this.Ipc.send(this.channel, "Cwd", cwd);
             };
+            // Returning false lets other handlers (or xterm's defaults) process sequences that aren't cwd reports
             this.term.parser.registerOscHandler(9, data => {
-                if (!data.startsWith("9;")) return false; // other OSC 9 uses (e.g. notifications)
-                this._setCwdFromShell(data.slice(2).replace(/^"(.*)"$/, "$1"));
+                const cwd = cwdFromOsc9(data);
+                if (cwd === null) return false;
+                this._setCwdFromShell(cwd);
                 return true;
             });
             this.term.parser.registerOscHandler(7, data => {
-                try {
-                    let url = new URL(data);
-                    if (url.protocol !== "file:") return false;
-                    let p = decodeURIComponent(url.pathname);
-                    if (process.platform === "win32") p = p.replace(/^\/([a-zA-Z]:)/, "$1").replace(/\//g, "\\");
-                    this._setCwdFromShell(p);
-                    return true;
-                } catch(e) {
-                    return false;
-                }
+                const cwd = cwdFromOsc7(data, process.platform);
+                if (cwd === null) return false;
+                this._setCwdFromShell(cwd);
+                return true;
             });
 
             this.resendCWD = () => {
@@ -378,31 +376,19 @@ class Terminal {
             this._disableCWDtracking = false;
             this._disableProcessTracking = false;
 
-            // Windows can't report another process's cwd, so for known shells we make the prompt report it
-            // instead (see the OSC handlers in the client). Only when the user hasn't set custom shell args.
-            let shellArgs = (opts.params.length > 0 ? opts.params : (process.platform === "win32" ? [] : ["--login"]));
-            let shellEnv = Object.assign({}, opts.env || process.env);
-            this._cwdFromShell = false;
-            if (process.platform === "win32" && opts.params.length === 0) {
-                let shellName = require("path").basename(opts.shell || "").toLowerCase();
-                if (shellName === "powershell.exe" || shellName === "pwsh.exe") {
-                    // Wrap whatever prompt the profile defined, prefixing it with OSC 9;9;"<cwd>"
-                    let script = [
-                        '$global:__edexPrompt = $function:prompt',
-                        'function global:prompt {',
-                        '  $loc = $executionContext.SessionState.Path.CurrentLocation',
-                        '  $osc = ""',
-                        '  if ($loc.Provider.Name -eq "FileSystem") { $osc = "$([char]27)]9;9;`"$($loc.ProviderPath)`"$([char]27)\\" }',
-                        '  $osc + (& $global:__edexPrompt)',
-                        '}'
-                    ].join("\n");
-                    shellArgs = ["-NoExit", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")];
-                    this._cwdFromShell = true;
-                } else if (shellName === "cmd.exe" && !shellEnv.PROMPT) {
-                    shellEnv.PROMPT = "$e]9;9;$P$e\\$P$G";
-                    this._cwdFromShell = true;
-                }
-            }
+            // Shell arguments/env, including Windows shell integration (the prompt reports the cwd).
+            // (Main-process require: paths resolve from this file's directory)
+            const {shellLaunchOptions} = require("../lib/shellIntegration.js");
+            const {parseResize} = require("../lib/validation.js");
+            const launch = shellLaunchOptions({
+                platform: process.platform,
+                shell: opts.shell,
+                params: opts.params,
+                env: opts.env || process.env
+            });
+            let shellArgs = launch.args;
+            let shellEnv = launch.env;
+            this._cwdFromShell = launch.cwdFromShell;
             if (this._cwdFromShell) this._disableCWDtracking = true;
             this._getTtyCWD = tty => {
                 return new Promise((resolve, reject) => {
@@ -541,17 +527,17 @@ class Terminal {
                         }
                         this.onopened(this.tty.pid);
                         break;
-                    case "Resize":
-                        let cols = Number(args[1]);
-                        let rows = Number(args[2]);
-                        if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) break;
+                    case "Resize": {
+                        const size = parseResize(args[1], args[2]);
+                        if (size === null) break;
                         try {
-                            this.tty.resize(cols, rows);
+                            this.tty.resize(size.cols, size.rows);
                         } catch (error) {
                             //Keep going, it'll work anyways.
                         }
-                        this.onresized(cols, rows);
+                        this.onresized(size.cols, size.rows);
                         break;
+                    }
                     default:
                         return;
                 }

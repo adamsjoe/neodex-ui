@@ -6,6 +6,7 @@
 
 const signale = require("signale");
 const si = require("systeminformation");
+const {isAllowedSystemInformationCall} = require("./lib/validation.js");
 
 module.exports = function initSystemInformationBackend(ipc, isTrustedSender) {
     ipc.on("systeminformation-call", (e, type, id, ...args) => {
@@ -13,7 +14,7 @@ module.exports = function initSystemInformationBackend(ipc, isTrustedSender) {
             signale.warn("Rejected systeminformation request from untrusted sender");
             return;
         }
-        if (typeof type !== "string" || !Object.prototype.hasOwnProperty.call(si, type) || typeof si[type] !== "function") {
+        if (!isAllowedSystemInformationCall(si, type)) {
             signale.warn("Illegal request for systeminformation");
             return;
         }

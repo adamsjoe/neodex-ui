@@ -5,27 +5,13 @@ window.eval = global.eval = function () {
     throw new Error("eval() is disabled for security reasons.");
 };
 
-// Security helper :)
-window._escapeHtml = text => {
-    let map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;'
-    };
-    return text.replace(/[&<>"']/g, m => {return map[m];});
-};
+// Security helpers (see src/lib/escape.js)
+const {escapeHtml, purifyCss} = require("./lib/escape.js");
+window._escapeHtml = escapeHtml;
 window._encodePathURI = uri => {
     return encodeURI(uri).replace(/#/g, "%23");
 };
-window._purifyCSS = str => {
-    if (typeof str === "undefined") return "";
-    if (typeof str !== "string") {
-        str = str.toString();
-    }
-    return str.replace(/[<]/g, "");
-};
+window._purifyCSS = purifyCss;
 window._delay = ms => {
     return new Promise((resolve, reject) => {
         setTimeout(resolve, ms);
@@ -833,17 +819,12 @@ window.writeFile = (filePath, content, statusElement) => {
 };
 
 window.writeSettingsFile = () => {
-    let envInput = document.getElementById("settingsEditor-env").value.trim();
-    let env;
-    if (envInput !== "") {
-        try {
-            env = JSON.parse(envInput);
-            if (typeof env !== "object" || env === null || Array.isArray(env)) throw new Error("not an object");
-        } catch(e) {
-            document.getElementById("settingsEditorStatus").innerText = "Not saved: env must be a JSON object, e.g. {\"FOO\": \"bar\"}";
-            return;
-        }
+    const parsedEnv = require("./lib/validation.js").parseEnvSetting(document.getElementById("settingsEditor-env").value);
+    if (!parsedEnv.ok) {
+        document.getElementById("settingsEditorStatus").innerText = "Not saved: " + parsedEnv.error;
+        return;
     }
+    const env = parsedEnv.env;
 
     window.settings = {
         shell: document.getElementById("settingsEditor-shell").value,

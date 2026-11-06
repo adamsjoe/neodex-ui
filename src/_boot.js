@@ -68,10 +68,9 @@ function handleTrusted(channel, handler) {
     });
 }
 
-const logLevels = ["error", "fatal", "warn", "info", "note", "debug", "success", "complete", "pending", "watch", "log"];
+const {normaliseLogLevel} = require("./lib/validation.js");
 onTrusted("log", (e, type, content) => {
-    if (!logLevels.includes(type)) type = "log";
-    signale[type](content);
+    signale[normaliseLogLevel(type)](content);
 });
 const settingsFile = path.join(electron.app.getPath("userData"), "settings.json");
 const shortcutsFile = path.join(electron.app.getPath("userData"), "shortcuts.json");

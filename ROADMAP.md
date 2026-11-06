@@ -6,7 +6,7 @@ Outstanding work for neoDEX-UI, roughly in priority order.
 
 The upstream GitHub Actions workflows were removed in November 2026: they targeted Node 14, npm 7 and CodeQL v1 and could no longer run. Restore these when there's something for them to do:
 
-- [ ] **Tests on every push/PR.** Once the smoke tests exist: Node 22, `actions/*@v4`, run on Windows, macOS and Linux runners (Linux needs `xvfb` for Electron, and `npm approve-scripts node-pty` to build node-pty).
+- [ ] **Tests on every push/PR.** The tests now exist (`npm test` runs unit + end-to-end): Node 22, `actions/*@v4`, run on Windows, macOS and Linux runners (Linux needs `xvfb` for Electron, and `npm approve-scripts node-pty` to build node-pty).
 - [ ] **Release builds.** Once packaging is verified with electron-builder 26: build the Windows installer, macOS dmg and Linux AppImages on tag push, and attach them to a GitHub release. Use native ARM runners rather than QEMU for arm64.
 - [ ] **CodeQL** (v3) for JavaScript, on push to `master` and weekly.
 - [ ] Turn on **Dependabot alerts** and **private vulnerability reporting** in the repo settings (no workflow needed; `SECURITY.md` already points at private reporting).
@@ -15,7 +15,8 @@ The upstream GitHub Actions workflows were removed in November 2026: they target
 
 - [x] Isolated config dir for tests (`NEODEX_USER_DATA`), so test runs never touch the real settings.
 - [x] Playwright Electron end-to-end suite (`npm test`, see `tests/e2e/README.md`): boot, terminals, file browser, settings, layout at five ratios, security regressions.
-- [ ] `node:test` unit tests for main-process logic (shell integration args, OSC cwd parsing, IPC sender checks, systeminformation allowlist, `env` setting validation), after extracting it from the classes.
+- [x] `node:test` unit tests (`npm run test:unit`, under a second) for the logic extracted to `src/lib/`: shell integration (including a real PowerShell run), OSC cwd parsing, IPC input validation, the systeminformation allowlist, `env` setting parsing, HTML/CSS escaping, default config.
+- [ ] Unit-test more of the main process as it moves out of the classes (e.g. the IPC sender guard in `_boot.js`, terminal output buffering).
 
 ## Security
 
