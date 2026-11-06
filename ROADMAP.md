@@ -40,7 +40,7 @@ The upstream GitHub Actions workflows were removed in November 2026: they target
 
 ## Smaller items
 
-- [ ] Decide whether to keep the in-app PDF viewer (pdf.js) or open PDFs in the system viewer.
+- [x] Keep the in-app PDF viewer (pdf.js 6, running in the isolated page; covered by the end-to-end tests).
 - [ ] Load config files without `require()`, so a typo in `settings.json` shows an error instead of crashing.
 - [ ] Stop overwriting the built-in themes on every start.
 - [ ] Settings validation and versioning.
