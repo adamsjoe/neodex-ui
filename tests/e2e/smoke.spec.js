@@ -27,17 +27,20 @@ test("main terminal runs commands and shows their output", async () => {
 
 test("file browser follows the terminal's working directory", async () => {
     const { app, page } = ctx;
+    const normalise = s => (process.platform === "win32" ? s.toLowerCase() : s);
     const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "neodex-cd-")));
     fs.writeFileSync(path.join(dir, "marker-file.txt"), "hello");
     try {
         await runCommand(app, `cd "${dir}"`);
         const title = page.locator("#fs_disp_title_dir");
-        const normalise = s => (process.platform === "win32" ? s.toLowerCase() : s);
         await expect.poll(async () => normalise(await title.innerText())).toBe(normalise(dir));
         await expect(page.locator("#fs_disp_container")).toContainText("marker-file.txt");
         await expect(page.locator("section#filesystem > h3.title > p").first()).not.toContainText("TRACKING FAILED");
     } finally {
+        // Wait until the shell has really left the directory before deleting it (on Linux the backend
+        // polls the shell's cwd once a second, and new tabs start in the last cwd it saw)
         await runCommand(app, "cd ..");
+        await expect.poll(async () => normalise(await page.locator("#fs_disp_title_dir").innerText())).toBe(normalise(path.dirname(dir)));
         fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
 });

@@ -18,9 +18,10 @@ test.afterAll(async () => {
 test("fullscreen window is exactly the size of the display", async () => {
     // Regression: a frameless window on Windows kept invisible resize borders, making the viewport
     // larger than the screen (2576x1608 on 2560x1600), which broke the aspect-ratio CSS
+    // Allows a couple of pixels: without a window manager (Linux CI under xvfb) the window is 1px short
     const size = await inPage(ctx.app, () => ({ w: innerWidth, h: innerHeight, sw: screen.width, sh: screen.height }));
-    expect(size.w).toBe(size.sw);
-    expect(size.h).toBe(size.sh);
+    expect(Math.abs(size.w - size.sw), `viewport width ${size.w} vs display ${size.sw}`).toBeLessThanOrEqual(2);
+    expect(Math.abs(size.h - size.sh), `viewport height ${size.h} vs display ${size.sh}`).toBeLessThanOrEqual(2);
 });
 
 // Measures everything the checks below need, in the current viewport
