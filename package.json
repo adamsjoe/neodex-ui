@@ -1,7 +1,7 @@
 {
-  "name": "edex-ui",
-  "productName": "eDEX-UI",
-  "version": "2.2.8",
+  "name": "neodex-ui",
+  "productName": "neoDEX-UI",
+  "version": "3.0.0-pre",
   "description": "A science fiction desktop running everywhere. Awesome.",
   "keywords": [
     "desktop",
@@ -30,28 +30,31 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GitSquared/edex-ui.git"
+    "url": "git+https://github.com/adamsjoe/neodex-ui.git"
   },
-  "author": "Gabriel 'Squared' SAILLARD <gabriel@saillard.dev> (https://gaby.dev)",
+  "author": "Joseph Adams (https://github.com/adamsjoe)",
+  "contributors": [
+    "Gabriel 'Squared' SAILLARD <gabriel@saillard.dev> (https://gaby.dev) (original eDEX-UI author)"
+  ],
   "license": "GPL-3.0",
   "bugs": {
-    "url": "https://github.com/GitSquared/edex-ui/issues"
+    "url": "https://github.com/adamsjoe/neodex-ui/issues"
   },
-  "homepage": "https://github.com/GitSquared/edex-ui#readme",
+  "homepage": "https://github.com/adamsjoe/neodex-ui#readme",
   "build": {
-    "appId": "com.edex.ui",
-    "productName": "eDEX-UI",
+    "appId": "io.github.adamsjoe.neodex-ui",
+    "productName": "neoDEX-UI",
     "publish": "github",
     "asar": true,
     "compression": "normal",
-    "copyright": "Copyright © 2017-2021 Gabriel 'Squared' SAILLARD <gabriel@saillard.dev> (https://gaby.dev)",
+    "copyright": "Copyright © 2017-2021 Gabriel 'Squared' SAILLARD, © 2026 Joseph Adams",
     "directories": {
       "output": "dist",
       "app": "prebuild-src"
     },
     "forceCodeSigning": false,
     "npmRebuild": true,
-    "artifactName": "eDEX-UI-${os}-${arch}.${ext}",
+    "artifactName": "neoDEX-UI-${os}-${arch}.${ext}",
     "linux": {
       "target": [
         "AppImage"
@@ -60,7 +63,7 @@
       "icon": "media/linuxIcons"
     },
     "appImage": {
-      "artifactName": "eDEX-UI-Linux-${arch}.AppImage"
+      "artifactName": "neoDEX-UI-Linux-${arch}.AppImage"
     },
     "mac": {
       "target": [
@@ -75,7 +78,7 @@
       "icon": "media/icon.icns"
     },
     "dmg": {
-      "artifactName": "eDEX-UI-macOS-${arch}.dmg"
+      "artifactName": "neoDEX-UI-macOS-${arch}.dmg"
     },
     "win": {
       "target": [
@@ -90,7 +93,7 @@
       "icon": "media/icon.ico"
     },
     "nsis": {
-      "artifactName": "eDEX-UI-Windows-${arch}.exe",
+      "artifactName": "neoDEX-UI-Windows-${arch}.exe",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": true

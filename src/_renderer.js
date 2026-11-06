@@ -247,7 +247,7 @@ function displayLine() {
 
     switch(true) {
         case i === 2:
-            bootScreen.innerHTML += `eDEX-UI Kernel version ${window._appInfo.version} boot at ${Date().toString()}; root:xnu-1699.22.73~1/RELEASE_X86_64`;
+            bootScreen.innerHTML += `neoDEX-UI Kernel version ${window._appInfo.version} boot at ${Date().toString()}; root:xnu-1699.22.73~1/RELEASE_X86_64`;
         case i === 4:
             setTimeout(displayLine, 500);
             break;
@@ -292,7 +292,7 @@ async function displayTitleScreen() {
 
     document.body.setAttribute("class", "");
     bootScreen.setAttribute("class", "center");
-    bootScreen.innerHTML = "<h1>eDEX-UI</h1>";
+    bootScreen.innerHTML = "<h1>neoDEX-UI</h1>";
     let title = document.querySelector("section > h1");
 
     await _delay(200);
@@ -491,7 +491,7 @@ async function initUI() {
     window.onmouseup = e => {
         if (window.keyboard.linkedToTerm) window.term[window.currentTerm].term.focus();
     };
-    window.term[0].term.writeln("\033[1m"+`Welcome to eDEX-UI v${window._appInfo.version} - Electron v${process.versions.electron}`+"\033[0m");
+    window.term[0].term.writeln("\033[1m"+`Welcome to neoDEX-UI v${window._appInfo.version} - Electron v${process.versions.electron}`+"\033[0m");
 
     await _delay(100);
 
@@ -811,7 +811,7 @@ window.openSettings = async () => {
             {label: "Open in External Editor", action: () => ipc.invoke("open-config-file", "settings")},
             {label: "Save to Disk", action: () => window.writeSettingsFile()},
             {label: "Reload UI", action: () => window.location.reload(true)},
-            {label: "Restart eDEX", action: () => ipc.send("app-relaunch")}
+            {label: "Restart neoDEX", action: () => ipc.send("app-relaunch")}
         ]
     }, () => {
         // Link the keyboard back to the terminal

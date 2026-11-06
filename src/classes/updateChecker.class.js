@@ -15,9 +15,9 @@ class UpdateChecker {
         https.get({
             protocol: "https:",
             host: "api.github.com",
-            path: "/repos/GitSquared/edex-ui/releases/latest",
+            path: "/repos/adamsjoe/neodex-ui/releases/latest",
             headers: {
-                "User-Agent": "eDEX-UI UpdateChecker"
+                "User-Agent": "neoDEX-UI UpdateChecker"
             }
         }, res => {
             switch(res.statusCode) {
@@ -54,7 +54,7 @@ class UpdateChecker {
                             let modal = new Modal({
                                 type: "info",
                                 title: "New version available",
-                                message: `eDEX-UI <strong>${window._escapeHtml(String(release.tag_name))}</strong> is now available.<br/>Head over to <a href="#" class="update-link">github.com</a> to download the latest version.`
+                                message: `neoDEX-UI <strong>${window._escapeHtml(String(release.tag_name))}</strong> is now available.<br/>Head over to <a href="#" class="update-link">github.com</a> to download the latest version.`
                             });
                             let link = document.querySelector(`#modal_${modal.id} a.update-link`);
                             if (link && releaseUrl) {

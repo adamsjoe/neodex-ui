@@ -1,8 +1,8 @@
 {
-  "name": "edex-ui",
-  "productName": "eDEX-UI",
-  "version": "2.2.8",
-  "description": "eDEX-UI sci-fi interface",
+  "name": "neodex-ui",
+  "productName": "neoDEX-UI",
+  "version": "3.0.0-pre",
+  "description": "neoDEX-UI sci-fi interface",
   "keywords": [
     "desktop",
     "sci-fi",
@@ -14,14 +14,17 @@
   "main": "_boot.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GitSquared/edex-ui.git"
+    "url": "git+https://github.com/adamsjoe/neodex-ui.git"
   },
-  "author": "Gabriel 'Squared' SAILLARD <gabriel@saillard.dev> (https://gaby.dev)",
+  "author": "Joseph Adams (https://github.com/adamsjoe)",
+  "contributors": [
+    "Gabriel 'Squared' SAILLARD <gabriel@saillard.dev> (https://gaby.dev) (original eDEX-UI author)"
+  ],
   "license": "GPL-3.0",
   "bugs": {
-    "url": "https://github.com/GitSquared/edex-ui/issues"
+    "url": "https://github.com/adamsjoe/neodex-ui/issues"
   },
-  "homepage": "https://github.com/GitSquared/edex-ui#readme",
+  "homepage": "https://github.com/adamsjoe/neodex-ui#readme",
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",
     "@xterm/addon-ligatures": "0.10.0",
