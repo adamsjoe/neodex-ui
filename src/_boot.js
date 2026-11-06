@@ -1,21 +1,30 @@
 const signale = require("signale");
 const {app, BrowserWindow, dialog, shell, clipboard, globalShortcut, screen} = require("electron");
 
-process.on("uncaughtException", e => {
+// Any error that escapes, including a rejected promise (e.g. the shell failing to start inside the async
+// "ready" handler), is fatal: report it and exit rather than leave the app running with no window.
+function crash(e) {
     signale.fatal(e);
-    dialog.showErrorBox("neoDEX-UI crashed", e.message || "Cannot retrieve error message.");
-    if (tty) {
-        tty.close();
+    // Automated tests set this: a modal dialog would block forever with nobody to dismiss it
+    if (!process.env.NEODEX_NO_ERROR_DIALOG) {
+        dialog.showErrorBox("neoDEX-UI crashed", (e && e.message) || String(e) || "Cannot retrieve error message.");
     }
-    if (extraTtys) {
-        Object.keys(extraTtys).forEach(key => {
-            if (extraTtys[key] !== null) {
-                extraTtys[key].close();
-            }
-        });
+    try {
+        if (tty) tty.close();
+        if (extraTtys) {
+            Object.keys(extraTtys).forEach(key => {
+                if (extraTtys[key] !== null && typeof extraTtys[key].close === "function") {
+                    extraTtys[key].close();
+                }
+            });
+        }
+    } catch (err) {
+        // already shutting down
     }
     process.exit(1);
-});
+}
+process.on("uncaughtException", crash);
+process.on("unhandledRejection", crash);
 
 signale.start(`Starting neoDEX-UI v${app.getVersion()}`);
 signale.info(`With Node ${process.versions.node} and Electron ${process.versions.electron}`);
