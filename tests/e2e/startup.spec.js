@@ -4,6 +4,7 @@ const os = require("os");
 const path = require("path");
 const { test, expect, _electron: electron } = require("@playwright/test");
 const { defaultSettings, defaultShortcuts } = require("../../src/_defaults.js");
+const { appLaunchOptions } = require("./helpers");
 
 test("a shell that can't be started makes the app exit with an error instead of hanging", async () => {
     const userData = fs.mkdtempSync(path.join(os.tmpdir(), "neodex-test-"));
@@ -14,10 +15,8 @@ test("a shell that can't be started makes the app exit with an error instead of 
     fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify(settings, null, 4));
     fs.writeFileSync(path.join(userData, "shortcuts.json"), JSON.stringify(defaultShortcuts(), null, 4));
 
-    const app = await electron.launch({
-        args: [path.join(__dirname, "..", "..", "src"), "--nointro"],
-        env: Object.assign({}, process.env, { NEODEX_USER_DATA: userData, NEODEX_NO_ERROR_DIALOG: "1" })
-    });
+    const app = await electron.launch(appLaunchOptions(
+        Object.assign({}, process.env, { NEODEX_USER_DATA: userData, NEODEX_NO_ERROR_DIALOG: "1" })));
     let log = "";
     app.process().stdout.on("data", d => { log += d; });
     app.process().stderr.on("data", d => { log += d; });

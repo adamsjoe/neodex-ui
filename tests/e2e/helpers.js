@@ -9,6 +9,17 @@ const { defaultSettings, defaultShortcuts } = require("../../src/_defaults.js");
 const repoRoot = path.resolve(__dirname, "..", "..");
 
 /**
+ * How to start the app: from source (Electron + src/) by default, or a packaged build when
+ * NEODEX_APP_EXECUTABLE points at its executable (e.g. dist/win-unpacked/neoDEX-UI.exe).
+ */
+function appLaunchOptions(env) {
+    const executable = process.env.NEODEX_APP_EXECUTABLE;
+    return executable
+        ? { executablePath: path.resolve(executable), args: ["--nointro"], env }
+        : { args: [path.join(repoRoot, "src"), "--nointro"], cwd: repoRoot, env };
+}
+
+/**
  * Runs `fn(arg)` in the app's UI page and returns its (JSON-serialisable) result.
  *
  * Use this instead of Playwright's page.evaluate()/waitForFunction(): those go through window.eval,
@@ -40,15 +51,11 @@ async function launchApp({ settings = {} } = {}) {
     fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify(allSettings, null, 4));
     fs.writeFileSync(path.join(userData, "shortcuts.json"), JSON.stringify(defaultShortcuts(), null, 4));
 
-    const app = await electron.launch({
-        args: [path.join(repoRoot, "src"), "--nointro"],
-        cwd: repoRoot,
-        env: Object.assign({}, process.env, {
+    const app = await electron.launch(appLaunchOptions(Object.assign({}, process.env, {
             NEODEX_USER_DATA: userData,
             NEODEX_NO_ERROR_DIALOG: "1", // a crash should fail the test with its log, not hang on a modal dialog
             ELECTRON_ENABLE_LOGGING: "1" // renderer console messages also go to stderr
-        })
-    });
+        })));
 
     // Keep the app's own output, so a failed launch can say why
     let log = "";
@@ -146,6 +153,7 @@ async function expectTerminalToContain(app, text, tab = 0) {
 }
 
 module.exports = {
+    appLaunchOptions,
     inPage,
     waitInPage,
     launchApp,

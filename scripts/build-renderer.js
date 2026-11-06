@@ -1,6 +1,6 @@
 // Bundles the UI page's code (src/ui/index.js and everything it requires) into src/build/renderer.js,
 // so the page needs no `require` and can run without Node integration.
-// Usage: node scripts/build-renderer.js [--watch]
+// Usage: node scripts/build-renderer.js [--watch] [--minify]
 const path = require("path");
 const esbuild = require("esbuild");
 
@@ -14,6 +14,8 @@ const options = {
     platform: "browser",
     target: "chrome140",
     sourcemap: "linked",
+    // Packaging builds are minified (scripts/prepare-package.js)
+    minify: process.argv.includes("--minify"),
     legalComments: "linked",
     // Libraries resolve from the app's own dependencies in src/
     nodePaths: [path.join(src, "node_modules")],

@@ -14,17 +14,10 @@
   "main": "src/_boot.js",
   "scripts": {
     "build:renderer": "node scripts/build-renderer.js",
+    "package": "node scripts/prepare-package.js && electron-builder --publish never",
+    "package:dir": "node scripts/prepare-package.js && electron-builder --dir --publish never",
     "prestart": "npm run build:renderer",
     "start": "electron src --nointro",
-    "prebuild-linux": "npm run build:renderer && rsync -a --info=progress2 src/ prebuild-src --exclude node_modules && node prebuild-minify.js && cd prebuild-src && npm install",
-    "prebuild-darwin": "npm run build:renderer && rsync -a src/ prebuild-src --exclude node_modules && node prebuild-minify.js && cd prebuild-src && npm install",
-    "prebuild-windows": "npm run build:renderer && mkdir prebuild-src && xcopy src\\* prebuild-src\\ /E /C /Q /Y && node prebuild-minify.js && cd prebuild-src && npm install",
-    "build-linux": "./node_modules/.bin/electron-builder build -l --x64 --ia32 --arm64 --armv7l",
-    "build-darwin": "./node_modules/.bin/electron-builder build -m",
-    "build-windows": "node_modules\\.bin\\electron-builder build -w",
-    "postbuild-linux": "rm -R prebuild-src",
-    "postbuild-darwin": "rm -R prebuild-src",
-    "postbuild-windows": "rmdir /S /Q prebuild-src",
     "test": "npm run test:unit && npm run test:e2e",
     "init-file-icons": "git submodule update --init",
     "update-file-icons": "git submodule foreach git pull origin master && node file-icons-generator.js",
@@ -58,11 +51,16 @@
       "app": "prebuild-src"
     },
     "forceCodeSigning": false,
-    "npmRebuild": true,
+    "npmRebuild": false,
     "artifactName": "neoDEX-UI-${os}-${arch}.${ext}",
     "linux": {
       "target": [
-        "AppImage"
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "category": "System",
       "icon": "media/linuxIcons"
@@ -75,7 +73,8 @@
         {
           "target": "dmg",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         }
       ],
@@ -90,8 +89,7 @@
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         }
       ],
@@ -102,13 +100,10 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": true
-    }
-  },
-  "dependencies": {
-    "clean-css": "5.2.1",
-    "mime-types": "^2.1.33",
-    "node-json-minify": "1.0.0",
-    "terser": "^5.9.0"
+    },
+    "asarUnpack": [
+      "node_modules/node-pty/**"
+    ]
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",
