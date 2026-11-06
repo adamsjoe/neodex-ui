@@ -1,0 +1,113 @@
+name: Release
+
+# Push a tag like v3.0.0 (matching "version" in package.json) to build, test and publish the installers.
+# The release is created as a draft: review it on GitHub, then click "Publish release".
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  check-version:
+    name: check tag matches package.json
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag must be v + package.json version
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match package.json version ($expected)"
+            exit 1
+          fi
+
+  build:
+    name: build-${{ matrix.os }}
+    needs: check-version
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            executable: dist/win-unpacked/neoDEX-UI.exe
+            installers: dist/*.exe
+          - os: macos-latest
+            executable: dist/mac-arm64/neoDEX-UI.app/Contents/MacOS/neoDEX-UI
+            installers: dist/*.dmg
+          - os: ubuntu-latest
+            executable: dist/linux-unpacked/neodex-ui
+            installers: dist/*.AppImage
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            src/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Package
+        run: npm run package
+
+      - name: Allow Chromium sandbox (Linux)
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # Nothing is released unless the packaged app passes the end-to-end suite
+      - name: End-to-end tests on the packaged app
+        if: runner.os != 'Linux'
+        run: npx playwright test
+        env:
+          NEODEX_APP_EXECUTABLE: ${{ matrix.executable }}
+
+      - name: End-to-end tests on the packaged app (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 2560x1440x24" npx playwright test
+        env:
+          NEODEX_APP_EXECUTABLE: ${{ matrix.executable }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ matrix.os }}
+          path: ${{ matrix.installers }}
+          if-no-files-found: error
+
+  release:
+    name: create draft release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: installers-*
+          path: installers
+          merge-multiple: true
+
+      - name: Create draft release with the installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" installers/* \
+            --draft $prerelease \
+            --title "neoDEX-UI ${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            --notes "Unsigned builds: Windows SmartScreen and macOS Gatekeeper will warn on first launch (on macOS, right-click the app and choose Open)."

@@ -7,7 +7,8 @@ Outstanding work for neoDEX-UI, roughly in priority order.
 The upstream GitHub Actions workflows were removed in November 2026: they targeted Node 14, npm 7 and CodeQL v1 and could no longer run. Restore these when there's something for them to do:
 
 - [x] **Tests on every push/PR** (`.github/workflows/test.yml`): unit + end-to-end on Windows, macOS and Linux runners.
-- [ ] **Release builds.** CI already builds and tests the installers on every push (the `package` job); what's left is publishing them to a GitHub release on tag push, and code signing (Windows SmartScreen / macOS Gatekeeper).
+- [x] **Release builds** (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` that matches package.json builds the installers on all three OSes, runs the end-to-end suite against each packaged app, and creates a draft GitHub release with them attached.
+- [ ] **Code signing** (Windows SmartScreen / macOS Gatekeeper): needs a Windows code-signing certificate and an Apple Developer ID.
 - [ ] **CodeQL** (v3) for JavaScript, on push to `master` and weekly.
 - [ ] Turn on **Dependabot alerts** and **private vulnerability reporting** in the repo settings (no workflow needed; `SECURITY.md` already points at private reporting).
 
