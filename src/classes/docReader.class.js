@@ -5,10 +5,10 @@ class DocReader {
         const scale = 1;
         const canvas = document.getElementById(modalElementId).querySelector(".pdf_canvas");
         // Read the file ourselves: pdf.js would otherwise try to fetch() a raw filesystem path
-        const loadingTask = window.pdfjsLib.getDocument({
-            data: new Uint8Array(require("fs").readFileSync(path)),
+        const loadingTask = window.neodex.invoke("fs-read-bytes", path).then(bytes => window.pdfjsLib.getDocument({
+            data: new Uint8Array(bytes),
             isEvalSupported: false
-        });
+        }).promise);
         let pdfDoc = null,
             pageNum = 1,
             pageRendering = false,
@@ -82,7 +82,7 @@ class DocReader {
         document.getElementById(modalElementId).querySelector(".zoom_in").addEventListener('click', this.zoomIn);
         document.getElementById(modalElementId).querySelector(".zoom_out").addEventListener('click', this.zoomOut);
 
-        loadingTask.promise.then((pdfDoc_) => {
+        loadingTask.then((pdfDoc_) => {
             pdfDoc = pdfDoc_;
             document.getElementById(modalElementId).querySelector(".page_count").textContent = pdfDoc.numPages;
             this.renderPage(pageNum);

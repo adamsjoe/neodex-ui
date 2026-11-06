@@ -23,27 +23,22 @@ window.onerror = (msg, path, line, col, error) => {
     document.getElementById("boot_screen").innerHTML += `${error} :  ${msg}<br/>==> at ${path}  ${line}:${col}`;
 };
 
-const path = require("path");
-const fs = require("fs");
-const electron = require("electron");
-const ipc = electron.ipcRenderer;
+// Everything Electron/Node goes through the preload API (src/_preload.js -> main process src/_api.js)
+const ipc = window.neodex;
+const boot = window.neodex.boot;
+if (!boot) throw new Error("Could not retrieve startup data from main process");
 
-// Static app info from the main process (replaces @electron/remote)
-window._appInfo = ipc.sendSync("app-info");
-if (!window._appInfo) throw new Error("Could not retrieve app info from main process");
-
-const settingsDir = window._appInfo.userData;
-const themesDir = path.join(settingsDir, "themes");
-const keyboardsDir = path.join(settingsDir, "keyboards");
-const fontsDir = path.join(settingsDir, "fonts");
-const settingsFile = path.join(settingsDir, "settings.json");
-const shortcutsFile = path.join(settingsDir, "shortcuts.json");
-const lastWindowStateFile = path.join(settingsDir, "lastWindowState.json");
+window._appInfo = boot.appInfo;
+window._platform = boot.platform;
+// Config directories (native paths; the file browser compares them with the directory it shows)
+const settingsDir = boot.dirs.userData;
+const themesDir = boot.dirs.themes;
+const keyboardsDir = boot.dirs.keyboards;
 
 // Load config
-window.settings = require(settingsFile);
-window.shortcuts = require(shortcutsFile);
-window.lastWindowState = require(lastWindowStateFile);
+window.settings = boot.settings;
+window.shortcuts = boot.shortcuts;
+window.lastWindowState = boot.lastWindowState;
 
 // Load CLI parameters
 if (window._appInfo.argv.includes("--nointro")) {
@@ -57,19 +52,22 @@ if (window._appInfo.argv.includes("--nocursor")) {
     window.settings.nocursorOverride = false;
 }
 
-// Retrieve theme override (hotswitch)
-ipc.once("getThemeOverride", (e, theme) => {
-    if (theme !== null) {
-        window.settings.theme = theme;
-        window.settings.nointroOverride = true;
-        _loadTheme(require(path.join(themesDir, window.settings.theme+".json")));
-    } else {
-        _loadTheme(require(path.join(themesDir, window.settings.theme+".json")));
-    }
+// Retrieve theme override (hotswitch), then load the theme. The UI waits for this before drawing.
+window._themeReady = new Promise((resolve, reject) => {
+    ipc.once("getThemeOverride", theme => {
+        if (theme !== null) {
+            window.settings.theme = theme;
+            window.settings.nointroOverride = true;
+        }
+        ipc.invoke("theme-load", window.settings.theme).then(t => {
+            _loadTheme(t);
+            resolve();
+        }).catch(reject);
+    });
 });
 ipc.send("getThemeOverride");
 // Same for keyboard override/hotswitch
-ipc.once("getKbOverride", (e, layout) => {
+ipc.once("getKbOverride", layout => {
     if (layout !== null) {
         window.settings.keyboard = layout;
         window.settings.nointroOverride = true;
@@ -84,10 +82,11 @@ window._loadTheme = theme => {
         document.querySelector("style.theming").remove();
     }
 
-    // Load fonts
-    let mainFont = new FontFace(theme.cssvars.font_main, `url("${path.join(fontsDir, theme.cssvars.font_main.toLowerCase().replace(/ /g, '_')+'.woff2').replace(/\\/g, '/')}")`);
-    let lightFont = new FontFace(theme.cssvars.font_main_light, `url("${path.join(fontsDir, theme.cssvars.font_main_light.toLowerCase().replace(/ /g, '_')+'.woff2').replace(/\\/g, '/')}")`);
-    let termFont = new FontFace(theme.terminal.fontFamily, `url("${path.join(fontsDir, theme.terminal.fontFamily.toLowerCase().replace(/ /g, '_')+'.woff2').replace(/\\/g, '/')}")`);
+    // Load fonts (bundled fonts are mirrored to the config dir; fontsUrl is its file:// URL)
+    const fontUrl = name => `url("${boot.fontsUrl}/${encodeURIComponent(name.toLowerCase().replace(/ /g, '_'))}.woff2")`;
+    let mainFont = new FontFace(theme.cssvars.font_main, fontUrl(theme.cssvars.font_main));
+    let lightFont = new FontFace(theme.cssvars.font_main_light, fontUrl(theme.cssvars.font_main_light));
+    let termFont = new FontFace(theme.terminal.fontFamily, fontUrl(theme.terminal.fontFamily));
 
     document.fonts.add(mainFont);
     document.fonts.load("12px "+theme.cssvars.font_main);
@@ -146,29 +145,17 @@ function initGraphicalErrorHandling() {
     };
 }
 
+// Resolves once the page has loaded and every font added so far (the theme's) has finished loading.
+// (The old version waited for a readystatechange event, which never fires if the page is already loaded.)
 function waitForFonts() {
-    return new Promise(resolve => {
-        if (document.readyState !== "complete" || document.fonts.status !== "loaded") {
-            document.addEventListener("readystatechange", () => {
-                if (document.readyState === "complete") {
-                    if (document.fonts.status === "loaded") {
-                        resolve();
-                    } else {
-                        document.fonts.onloadingdone = () => {
-                            if (document.fonts.status === "loaded") resolve();
-                        };
-                    }
-                }
-            });
-        } else {
-            resolve();
-        }
-    });
+    const pageLoaded = document.readyState === "complete"
+        ? Promise.resolve()
+        : new Promise(resolve => window.addEventListener("load", resolve, { once: true }));
+    return pageLoaded.then(() => document.fonts.ready);
 }
 
 // A proxy function used to add multithreading to systeminformation calls - see backend process manager @ _multithread.js
 function initSystemInformationProxy() {
-    const { nanoid } = require("nanoid/non-secure");
 
     window.si = new Proxy({}, {
         apply: () => {throw new Error("Cannot use sysinfo proxy directly as a function")},
@@ -178,8 +165,8 @@ function initSystemInformationProxy() {
                 let callback = (typeof args[args.length - 1] === "function") ? true : false;
 
                 return new Promise((resolve, reject) => {
-                    let id = nanoid();
-                    ipc.once("systeminformation-reply-"+id, (e, res) => {
+                    let id = crypto.randomUUID();
+                    ipc.once("systeminformation-reply-"+id, res => {
                         if (callback) {
                             args[args.length - 1](res);
                         }
@@ -205,20 +192,22 @@ if (window.settings.nointro || window.settings.nointroOverride) {
     initSystemInformationProxy();
     document.getElementById("boot_screen").remove();
     document.body.setAttribute("class", "");
-    waitForFonts().then(initUI);
+    window._themeReady.then(waitForFonts).then(initUI);
 } else {
-    displayLine();
+    ipc.invoke("boot-log").then(text => {
+        bootLog = text.split('\n');
+        displayLine();
+    });
 }
 
 // Startup boot log
+let bootLog = [];
 function displayLine() {
     let bootScreen = document.getElementById("boot_screen");
-    let log = fs.readFileSync(path.join(__dirname, "assets", "misc", "boot_log.txt")).toString().split('\n');
+    let log = bootLog;
 
     function isArchUser() {
-        return require("os").platform() === "linux"
-                && fs.existsSync("/etc/os-release")
-                && fs.readFileSync("/etc/os-release").toString().includes("arch");
+        return boot.isArch;
     }
 
     if (typeof log[i] === "undefined") {
@@ -267,6 +256,7 @@ function displayLine() {
 
 // Show "logo" and background grid
 async function displayTitleScreen() {
+    await window._themeReady;
     let bootScreen = document.getElementById("boot_screen");
     if (bootScreen === null) {
         bootScreen = document.createElement("section");
@@ -327,7 +317,7 @@ async function getDisplayName() {
         return user;
 
     try {
-        user = await require("username")();
+        user = await ipc.invoke("username");
     } catch (e) {}
 
     return user;
@@ -365,7 +355,7 @@ async function initUI() {
     <section id="keyboard" style="opacity:0;">
     </section>`;
     window.keyboard = new Keyboard({
-        layout: path.join(keyboardsDir, settings.keyboard+".json"),
+        layout: await ipc.invoke("keyboard-load", settings.keyboard),
         container: "keyboard"
     });
 
@@ -480,7 +470,7 @@ async function initUI() {
     window.onmouseup = e => {
         if (window.keyboard.linkedToTerm) window.term[window.currentTerm].term.focus();
     };
-    window.term[0].term.writeln("\033[1m"+`Welcome to neoDEX-UI v${window._appInfo.version} - Electron v${process.versions.electron}`+"\033[0m");
+    window.term[0].term.writeln("\033[1m"+`Welcome to neoDEX-UI v${window._appInfo.version} - Electron v${boot.versions.electron}`+"\033[0m");
 
     await _delay(100);
 
@@ -509,10 +499,11 @@ window.themeChanger = theme => {
     }, 100);
 };
 
-window.remakeKeyboard = layout => {
+window.remakeKeyboard = async layout => {
+    const layoutData = await ipc.invoke("keyboard-load", layout || settings.keyboard);
     document.getElementById("keyboard").innerHTML = "";
     window.keyboard = new Keyboard({
-        layout: path.join(keyboardsDir, layout+".json" || settings.keyboard+".json"),
+        layout: layoutData,
         container: "keyboard"
     });
     ipc.send("setKbOverride", layout);
@@ -552,7 +543,7 @@ window.focusShellTab = number => {
 
         setTabLabel(number, "LOADING...");
         ipc.send("ttyspawn", "true");
-        ipc.once("ttyspawn-reply", (e, r) => {
+        ipc.once("ttyspawn-reply", r => {
             if (r.startsWith("ERROR")) {
                 setTabLabel(number, "ERROR");
             } else if (r.startsWith("SUCCESS")) {
@@ -593,15 +584,11 @@ window.openSettings = async () => {
     // Build lists of available keyboards, themes, monitors
     const esc = v => window._escapeHtml(String((typeof v === "undefined" || v === null) ? "" : v));
     let keyboards = "", themes = "", monitors = "", ifaces = "";
-    fs.readdirSync(keyboardsDir).forEach(kb => {
-        if (!kb.endsWith(".json")) return;
-        kb = kb.replace(".json", "");
+    (await ipc.invoke("keyboards-list")).forEach(kb => {
         if (kb === window.settings.keyboard) return;
         keyboards += `<option>${esc(kb)}</option>`;
     });
-    fs.readdirSync(themesDir).forEach(th => {
-        if (!th.endsWith(".json")) return;
-        th = th.replace(".json", "");
+    (await ipc.invoke("themes-list")).forEach(th => {
         if (th === window.settings.theme) return;
         themes += `<option>${esc(th)}</option>`;
     });
@@ -816,9 +803,10 @@ window.openSettings = async () => {
 };
 
 window.writeFile = (filePath, content, statusElement) => {
-    fs.writeFile(filePath, content, "utf-8", err => {
-        if (!statusElement) return;
-        statusElement.textContent = err ? `Could not save file: ${err.message}` : "File saved.";
+    ipc.invoke("fs-write-text", filePath, content).then(() => {
+        if (statusElement) statusElement.textContent = "File saved.";
+    }).catch(err => {
+        if (statusElement) statusElement.textContent = `Could not save file: ${err.message}`;
     });
 };
 
@@ -864,8 +852,11 @@ window.writeSettingsFile = () => {
         }
     });
 
-    fs.writeFileSync(settingsFile, JSON.stringify(window.settings, "", 4));
-    document.getElementById("settingsEditorStatus").innerText = "New values written to settings.json file at "+new Date().toTimeString();
+    ipc.invoke("settings-save", window.settings).then(() => {
+        document.getElementById("settingsEditorStatus").innerText = "New values written to settings.json file at "+new Date().toTimeString();
+    }).catch(err => {
+        document.getElementById("settingsEditorStatus").innerText = "Could not save settings: "+err.message;
+    });
 };
 
 window.toggleFullScreen = async () => {
@@ -874,7 +865,7 @@ window.toggleFullScreen = async () => {
     //Update settings
     window.lastWindowState["useFullscreen"] = useFullscreen;
 
-    fs.writeFileSync(lastWindowStateFile, JSON.stringify(window.lastWindowState, "", 4));
+    ipc.invoke("window-state-save", window.lastWindowState);
 };
 
 // Display available keyboard shortcuts and custom shortcuts helper
@@ -1053,7 +1044,7 @@ window.useAppShortcut = action => {
 
 // Global keyboard shortcuts - registered in the main process, which notifies us by index
 let globalShortcutHandlers = [];
-ipc.on("shortcut-triggered", (e, index) => {
+ipc.on("shortcut-triggered", index => {
     if (typeof globalShortcutHandlers[index] === "function") globalShortcutHandlers[index]();
 });
 
@@ -1122,13 +1113,13 @@ document.addEventListener("keydown", e => {
 
 // Fix #265
 window.addEventListener("keyup", e => {
-    if (require("os").platform() === "win32" && e.key === "F4" && e.altKey === true) {
+    if (window._platform === "win32" && e.key === "F4" && e.altKey === true) {
         ipc.send("app-quit");
     }
 });
 
 // Fix double-tap zoom on touchscreens
-electron.webFrame.setVisualZoomLevelLimits(1, 1);
+ipc.setZoomLimits(1, 1);
 
 // Resize terminal with window
 window.onresize = () => {

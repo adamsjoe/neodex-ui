@@ -1,77 +1,33 @@
 class UpdateChecker {
     constructor() {
-        let https = require("https");
-        let electron = require("electron");
-        let current = window._appInfo.version;
+        const current = window._appInfo.version;
+        const log = (level, message) => window.neodex.send("log", level, message);
 
-        this._failed = false;
-        this._willfail = false;
-        this._fail = e => {
-            this._failed = true;
-            electron.ipcRenderer.send("log", "note", "UpdateChecker: Could not fetch latest release from GitHub's API.");
-            electron.ipcRenderer.send("log", "debug", `Error: ${e}`);
-        };
-
-        https.get({
-            protocol: "https:",
-            host: "api.github.com",
-            path: "/repos/adamsjoe/neodex-ui/releases/latest",
-            headers: {
-                "User-Agent": "neoDEX-UI UpdateChecker"
-            }
-        }, res => {
-            switch(res.statusCode) {
-                case 200:
-                    break;
-                case 404:
-                    this._fail("Got 404 (Not Found) response from server");
-                    break;
-                default:
-                    this._willfail = true;
-            }
-
-            let rawData = "";
-
-            res.on('data', chunk => {
-                rawData += chunk;
-            });
-
-            res.on('end', () => {
-                let d = rawData;
-                if (this._failed === true) {
-                    // Do nothing, it already failed
-                } else if (this._willfail) {
-                    this._fail(d.toString());
-                } else {
-                    try {
-                        let release = JSON.parse(d.toString());
-                        if (release.tag_name.slice(1) === current) {
-                            electron.ipcRenderer.send("log", "info", "UpdateChecker: Running latest version.");
-                        } else if (Number(release.tag_name.slice(1).replace(/\./g, "")) < Number(current.replace("-pre", "").replace(/\./g, ""))) {
-                            electron.ipcRenderer.send("log", "info", "UpdateChecker: Running an unreleased, development version.");
-                        } else {
-                            let releaseUrl = (typeof release.html_url === "string" && release.html_url.startsWith("https://github.com/")) ? release.html_url : null;
-                            let modal = new Modal({
-                                type: "info",
-                                title: "New version available",
-                                message: `neoDEX-UI <strong>${window._escapeHtml(String(release.tag_name))}</strong> is now available.<br/>Head over to <a href="#" class="update-link">github.com</a> to download the latest version.`
-                            });
-                            let link = document.querySelector(`#modal_${modal.id} a.update-link`);
-                            if (link && releaseUrl) {
-                                link.addEventListener("click", e => {
-                                    e.preventDefault();
-                                    electron.shell.openExternal(releaseUrl);
-                                });
-                            }
-                            electron.ipcRenderer.send("log", "info", `UpdateChecker: New version ${release.tag_name} available.`);
-                        }
-                    } catch(e) {
-                        this._fail(e);
-                    }
+        // The request to GitHub's API is made by the main process (see "app-latest-release" in _api.js)
+        window.neodex.invoke("app-latest-release").then(release => {
+            const latest = release.tagName.replace(/^v/, "");
+            if (latest === current) {
+                log("info", "UpdateChecker: Running latest version.");
+            } else if (Number(latest.replace(/\./g, "")) < Number(current.replace("-pre", "").replace(/\./g, ""))) {
+                log("info", "UpdateChecker: Running an unreleased, development version.");
+            } else {
+                let modal = new Modal({
+                    type: "info",
+                    title: "New version available",
+                    message: `neoDEX-UI <strong>${window._escapeHtml(release.tagName)}</strong> is now available.<br/>Head over to <a href="#" class="update-link">github.com</a> to download the latest version.`
+                });
+                let link = document.querySelector(`#modal_${modal.id} a.update-link`);
+                if (link && release.url) {
+                    link.addEventListener("click", e => {
+                        e.preventDefault();
+                        window.neodex.invoke("shell-open-external", release.url);
+                    });
                 }
-            });
-        }).on('error', e => {
-            this._fail(e);
+                log("info", `UpdateChecker: New version ${release.tagName} available.`);
+            }
+        }).catch(e => {
+            log("note", "UpdateChecker: Could not fetch latest release from GitHub's API.");
+            log("debug", `Error: ${e && e.message}`);
         });
     }
 }

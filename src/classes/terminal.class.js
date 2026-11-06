@@ -5,7 +5,7 @@ class Terminal {
 
             this.xTerm = require("@xterm/xterm").Terminal;
             const {FitAddon} = require("@xterm/addon-fit");
-            this.Ipc = require("electron").ipcRenderer;
+            this.Ipc = window.neodex; // preload API (send/on/invoke), see src/_preload.js
 
             // Terminal ID, matching a pty in the main process. Data is exchanged over IPC.
             this.id = opts.id || 0;
@@ -178,13 +178,13 @@ class Terminal {
                 }
             };
 
-            this._ipcListener = (e, ...args) => {
+            this._ipcListener = (...args) => {
                 switch(args[0]) {
                     case "Data":
                         this._onPtyData(args[1]);
                         break;
                     case "Exit":
-                        this.Ipc.removeListener(this.channel, this._ipcListener);
+                        this._unsubscribe();
                         if (this.onclose) {
                             this.onclose({code: args[1], signal: args[2]});
                         }
@@ -206,7 +206,7 @@ class Terminal {
                         return;
                 }
             };
-            this.Ipc.on(this.channel, this._ipcListener);
+            this._unsubscribe = this.Ipc.on(this.channel, this._ipcListener);
 
             // Shell integration: shells report their working directory through escape sequences in the
             // prompt. Needed on Windows, where the backend can't read another process's cwd.
@@ -228,7 +228,7 @@ class Terminal {
                 return true;
             });
             this.term.parser.registerOscHandler(7, data => {
-                const cwd = cwdFromOsc7(data, process.platform);
+                const cwd = cwdFromOsc7(data, window._platform);
                 if (cwd === null) return false;
                 this._setCwdFromShell(cwd);
                 return true;

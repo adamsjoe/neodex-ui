@@ -76,6 +76,22 @@ function handleTrusted(channel, handler) {
         return handler(e, ...args);
     });
 }
+// Synchronous request (ipcRenderer.sendSync); untrusted senders get null
+function onSyncTrusted(channel, handler) {
+    ipc.on(channel, (e, ...args) => {
+        if (!isTrustedSender(e.sender)) {
+            signale.warn(`Rejected IPC message on "${channel}" from untrusted sender`);
+            e.returnValue = null;
+            return;
+        }
+        try {
+            e.returnValue = handler(e, ...args);
+        } catch (err) {
+            signale.error(`IPC "${channel}" failed: ${err.message}`);
+            e.returnValue = null;
+        }
+    });
+}
 
 const {normaliseLogLevel} = require("./lib/validation.js");
 onTrusted("log", (e, type, content) => {
@@ -190,6 +206,7 @@ function createWindow(settings) {
         backgroundColor: '#000000',
         webPreferences: {
             devTools: true,
+            preload: path.join(__dirname, "_preload.js"),
             // TODO: enable contextIsolation + sandbox once the renderer stops using Node APIs directly
             sandbox: false,
             contextIsolation: false,
@@ -257,14 +274,8 @@ function closeExtraTtys() {
 let keepGeometry = true;
 
 // Replacements for the @electron/remote calls previously made from the renderer
-ipc.on("app-info", e => {
-    // Synchronous, needed before the renderer can load its config. Read-only, non-sensitive info.
-    e.returnValue = isTrustedSender(e.sender) ? {
-        version: app.getVersion(),
-        userData: app.getPath("userData"),
-        argv: process.argv
-    } : null;
-});
+// Files, network and OS access for the UI (exposed to the page by the preload script)
+require("./_api.js")({ handleTrusted, onSyncTrusted, getWindow: () => win });
 onTrusted("app-focus", () => app.focus());
 onTrusted("app-quit", () => app.quit());
 onTrusted("app-relaunch", () => {

@@ -30,7 +30,7 @@ test("other web contents cannot drive the terminal or call the backend", async (
         const outcome = await intruder.webContents.executeJavaScript(`(async () => {
             const { ipcRenderer } = require("electron");
             ipcRenderer.send("terminal_channel-0", "Data", "echo INJECTED_$((3*3))\\r");
-            const appInfo = ipcRenderer.sendSync("app-info");
+            const appInfo = ipcRenderer.sendSync("boot-data");
             let clipboard;
             try { await ipcRenderer.invoke("clipboard-read"); clipboard = "allowed"; } catch (e) { clipboard = "rejected"; }
             return { appInfo, clipboard };
