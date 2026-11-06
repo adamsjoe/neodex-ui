@@ -43,16 +43,33 @@ async function launchApp({ settings = {} } = {}) {
     const app = await electron.launch({
         args: [path.join(repoRoot, "src"), "--nointro"],
         cwd: repoRoot,
-        env: Object.assign({}, process.env, { NEODEX_USER_DATA: userData })
+        env: Object.assign({}, process.env, {
+            NEODEX_USER_DATA: userData,
+            ELECTRON_ENABLE_LOGGING: "1" // renderer console messages also go to stderr
+        })
     });
 
-    const page = await app.firstWindow();
-    const pageErrors = [];
-    page.on("pageerror", err => pageErrors.push(err));
+    // Keep the app's own output, so a failed launch can say why
+    let log = "";
+    const capture = chunk => { log = (log + chunk.toString()).slice(-20000); };
+    app.process().stdout.on("data", capture);
+    app.process().stderr.on("data", capture);
 
-    // Boot is complete once the terminal, file browser and side modules exist
-    await waitInPage(app, () => Boolean(window.term && window.term[0] && window.fsDisp && window.mods && window.mods.toplist), null,
-        { timeout: 60 * 1000, message: "app should finish booting" });
+    let page;
+    const pageErrors = [];
+    try {
+        page = await app.firstWindow({ timeout: 60 * 1000 });
+        page.on("pageerror", err => pageErrors.push(err));
+
+        // Boot is complete once the terminal, file browser and side modules exist
+        await waitInPage(app, () => Boolean(window.term && window.term[0] && window.fsDisp && window.mods && window.mods.toplist), null,
+            { timeout: 60 * 1000, message: "app should finish booting" });
+    } catch (err) {
+        await app.close().catch(() => {});
+        fs.rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+        err.message += `\n\n--- app output (last 20 KB) ---\n${log || "(none)"}`;
+        throw err;
+    }
 
     return {
         app,
