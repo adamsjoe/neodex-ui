@@ -146,6 +146,70 @@ module.exports = function registerApi({ handleTrusted, onSyncTrusted, getWindow 
         });
     }));
 
+    // ---- Filesystem (file browser, editor, PDF viewer)
+    // The UI is a file manager and editor, so it can read and write any path the user can; what changes
+    // is that it has to ask the main process instead of holding Node's fs module itself.
+    const checkPath = p => {
+        if (typeof p !== "string" || p === "" || p.includes("\0")) throw new Error("Invalid path");
+        return p;
+    };
+
+    // Lists a directory. One entry failing must not fail the listing: files vanish between readdir and
+    // lstat (e.g. in temp folders), and some are locked or unreadable.
+    handleTrusted("fs-list", async (e, dir) => {
+        checkPath(dir);
+        if (process.platform === "win32" && /^[a-z]:$/i.test(dir)) dir += "\\"; // "C:" means the drive root
+        const names = await fs.promises.readdir(dir);
+        const entries = await Promise.all(names.map(async name => {
+            const full = path.resolve(dir, name);
+            let stat;
+            try {
+                stat = await fs.promises.lstat(full);
+            } catch (err) {
+                if (err.code === "ENOENT") return null; // deleted since readdir
+                return { name, path: full, kind: "system" }; // locked/unreadable
+            }
+            return {
+                name,
+                path: full,
+                kind: stat.isSymbolicLink() ? "symlink" : stat.isDirectory() ? "dir" : stat.isFile() ? "file" : "other",
+                size: stat.size,
+                mtime: stat.mtimeMs
+            };
+        }));
+        const isRoot = path.parse(dir).root === path.resolve(dir);
+        return {
+            dir,
+            parent: isRoot ? null : path.resolve(dir, ".."),
+            entries: entries.filter(entry => entry !== null)
+        };
+    });
+    handleTrusted("fs-exists", (e, p) => fs.existsSync(checkPath(p)));
+    handleTrusted("fs-read-text", (e, p) => fs.promises.readFile(checkPath(p), "utf-8"));
+    handleTrusted("fs-write-text", (e, p, content) => fs.promises.writeFile(checkPath(p), String(content), "utf-8"));
+    handleTrusted("fs-read-bytes", async (e, p) => new Uint8Array(await fs.promises.readFile(checkPath(p))));
+
+    // One watched directory for the UI; changes (other than file contents) are sent as "fs-changed"
+    let watcher = null;
+    const unwatch = () => {
+        if (watcher) watcher.close();
+        watcher = null;
+    };
+    handleTrusted("fs-watch", (e, dir) => {
+        unwatch();
+        const sender = e.sender;
+        try {
+            watcher = fs.watch(checkPath(dir), eventType => {
+                // #758: don't refresh the file view when only a file's contents changed
+                if (eventType !== "change" && !sender.isDestroyed()) sender.send("fs-changed", dir);
+            });
+            watcher.on("error", unwatch);
+        } catch (err) {
+            watcher = null; // e.g. directory deleted; the next listing will report it
+        }
+    });
+    handleTrusted("fs-unwatch", () => unwatch());
+
     // ---- GeoIP (GeoLite2 City database, downloaded to the config dir)
     let geoLookup = null;
     try {

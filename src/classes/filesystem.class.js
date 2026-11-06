@@ -2,8 +2,8 @@ class FilesystemDisplay {
     constructor(opts) {
         if (!opts.parentId) throw "Missing options";
 
-        const fs = require("fs");
-        const path = require("path");
+        // Filesystem access goes through the main process (fs-* channels, see src/_api.js)
+        const neodex = window.neodex;
         this.cwd = [];
         this.cwd_path = null;
         this.iconcolor = `rgb(${window.theme.r}, ${window.theme.g}, ${window.theme.b})`;
@@ -66,23 +66,9 @@ class FilesystemDisplay {
             }
         }, 1000);
 
-        this._asyncFSwrapper = new Proxy(fs, {
-            get: function(fs, prop) {
-                if (prop in fs) {
-                    return function(...args) {
-                        return new Promise((resolve, reject) => {
-                            fs[prop](...args, (err, d) => {
-                                if (typeof err !== "undefined" && err !== null) reject(err);
-                                if (typeof d !== "undefined") resolve(d);
-                                if (typeof d === "undefined" && typeof err === "undefined") resolve();
-                            });
-                        });
-                    }
-                }
-            },
-            set: function() {
-                return false;
-            }
+        // The main process watches the current directory and tells us when its contents change
+        neodex.on("fs-changed", dir => {
+            if (dir === this.dirpath) this._runNextTick = true;
         });
 
         this.setFailedState = () => {
@@ -104,9 +90,7 @@ class FilesystemDisplay {
 
                 if (cwd && cwd !== this.cwd_path && window.currentTerm === num) {
                     this.cwd_path = cwd;
-                    if (this._fsWatcher) {
-                        this._fsWatcher.close();
-                    }
+                    neodex.invoke("fs-unwatch");
                     if (cwd.startsWith("FALLBACK |-- ")) {
                         this.readFS(cwd.slice(13));
                         this._noTracking = true;
@@ -120,14 +104,7 @@ class FilesystemDisplay {
         this.followTab();
 
         this.watchFS = dir => {
-            if (this._fsWatcher) {
-                this._fsWatcher.close();
-            }
-            this._fsWatcher = fs.watch(dir, (eventType, filename) => {
-                if (eventType != "change") { // #758 - Don't refresh file view if only file contents have changed.
-                    this._runNextTick = true;
-                }
-            });
+            neodex.invoke("fs-watch", dir);
         };
 
         this.toggleHidedotfiles = () => {
@@ -161,11 +138,9 @@ class FilesystemDisplay {
                 document.querySelector("section#filesystem > h3.title > p:first-of-type").innerText = "FILESYSTEM - TRACKING FAILED, RUNNING DETACHED FROM TTY";
             }
 
-            if (process.platform === "win32" && dir.endsWith(":")) dir = dir+"\\";
-            let tcwd = dir;
-            let content;
+            let listing;
             try {
-                content = await this._asyncFSwrapper.readdir(tcwd);
+                listing = await neodex.invoke("fs-list", dir);
             } catch (err) {
                 // The directory itself can't be read
                 console.warn(err);
@@ -178,51 +153,34 @@ class FilesystemDisplay {
                 }
                 return false;
             }
+            let tcwd = listing.dir;
+            this.parentPath = listing.parent;
 
             this.reCalculateDiskUsage(tcwd);
 
-            // Stat every entry. A single entry failing must not fail the whole listing: files vanish between
-            // readdir and lstat all the time (e.g. in temp folders), and some are locked or unreadable.
-            const entries = await Promise.all(content.map(async file => {
-                let fstat;
-                try {
-                    fstat = await this._asyncFSwrapper.lstat(path.join(tcwd, file));
-                } catch (err) {
-                    if (err && err.code === "ENOENT") return null; // deleted since readdir: leave it out
-                    fstat = undefined; // locked/unreadable: shown as a hidden "system" entry below
-                }
-
+            this.cwd = listing.entries.map(entry => {
+                const file = entry.name;
                 let e = {
                     name: window._escapeHtml(file),
-                    path: path.resolve(tcwd, file),
+                    path: entry.path,
                     type: "other",
                     category: "other",
                     hidden: false
                 };
 
-                if (typeof fstat !== "undefined") {
-                    e.lastAccessed = fstat.mtime.getTime();
-
-                    if (fstat.isDirectory()) {
-                        e.category = "dir";
-                        e.type = "dir";
-                    }
-                    if (e.category === "dir" && tcwd === settingsDir && file === "themes") e.type="edex-themesDir";
-                    if (e.category === "dir" && tcwd === settingsDir && file === "keyboards") e.type = "edex-kblayoutsDir";
-
-                    if (fstat.isSymbolicLink()) {
-                        e.category = "symlink";
-                        e.type = "symlink";
-                    }
-
-                    if (fstat.isFile()) {
-                        e.category = "file";
-                        e.type = "file";
-                        e.size = fstat.size;
-                    }
-                } else {
+                if (entry.kind === "system") {
+                    // locked/unreadable
                     e.type = "system";
                     e.hidden = true;
+                } else {
+                    e.lastAccessed = entry.mtime;
+                    if (entry.kind === "dir" || entry.kind === "symlink" || entry.kind === "file") {
+                        e.category = entry.kind;
+                        e.type = entry.kind;
+                    }
+                    if (entry.kind === "file") e.size = entry.size;
+                    if (e.category === "dir" && tcwd === settingsDir && file === "themes") e.type = "edex-themesDir";
+                    if (e.category === "dir" && tcwd === settingsDir && file === "keyboards") e.type = "edex-kblayoutsDir";
                 }
 
                 if (e.category === "file" && tcwd === themesDir && file.endsWith(".json")) e.type = "edex-theme";
@@ -233,8 +191,7 @@ class FilesystemDisplay {
                 if (file.startsWith(".")) e.hidden = true;
 
                 return e;
-            }));
-            this.cwd = entries.filter(e => e !== null);
+            });
 
             let ordering = {
                 dir: 0,
@@ -252,7 +209,7 @@ class FilesystemDisplay {
                 type: "showDisks"
             });
 
-            if (tcwd !== "/" && /^[A-Z]:\\$/i.test(tcwd) === false) {
+            if (listing.parent !== null) {
                 this.cwd.splice(1, 0, {
                     name: "Go up",
                     type: "up"
@@ -268,9 +225,10 @@ class FilesystemDisplay {
             if (this.failed === true) return false;
 
             let blocks = await window.si.blockDevices();
+            let mounted = await Promise.all(blocks.map(block => block.mount ? neodex.invoke("fs-exists", block.mount) : false));
             let devices = [];
-            blocks.forEach(block => {
-                if (fs.existsSync(block.mount)) {
+            blocks.forEach((block, i) => {
+                if (mounted[i]) {
                     let type = (block.type === "rom") ? "rom" : "disk";
                     if (block.removable && block.type !== "rom") {
                         type = "usb";
@@ -309,8 +267,7 @@ class FilesystemDisplay {
                 let hidden = e.hidden ? " hidden" : "";
 
                 let cmdPrefix = `if (window.keyboard.container.dataset.isCtrlOn == "true") {
-                                electron.shell.openPath(fsDisp.cwd[${blockIndex}].path);
-                                ipc.send("window-minimize");
+                                window.neodex.invoke("shell-open-path", fsDisp.cwd[${blockIndex}].path);
                             } else if (window.keyboard.container.dataset.isShiftOn == "true") {
                                 window.term[window.currentTerm].write("\\""+fsDisp.cwd[${blockIndex}].path+"\\"");
                             } else {
@@ -326,7 +283,7 @@ class FilesystemDisplay {
                     } else if (e.type === "up") {
                         cmd = `window.term[window.currentTerm].writelr("cd ..")`;
                     } else if (e.type === "disk" || e.type === "rom" || e.type === "usb") {
-                        if (process.platform === "win32") {
+                        if (window._platform === "win32") {
                             cmd = `window.term[window.currentTerm].writelr("${e.path.replace(/\\/g, '')}")`;
                         } else {
                             cmd = `window.term[window.currentTerm].writelr("cd \\"${e.path.replace(/\\/g, '')}\\"")`;
@@ -338,7 +295,7 @@ class FilesystemDisplay {
                     if (e.type === "dir" || e.type.endsWith("Dir")) {
                         cmd = `window.fsDisp.readFS(fsDisp.cwd[${blockIndex}].path)`;
                     } else if (e.type === "up") {
-                        cmd = `window.fsDisp.readFS(path.resolve(window.fsDisp.dirpath, ".."))`;
+                        cmd = `window.fsDisp.readFS(window.fsDisp.parentPath)`;
                     } else if (e.type === "disk" || e.type === "rom" || e.type === "usb") {
                         cmd = `window.fsDisp.readFS("${e.path.replace(/\\/g, '')}")`;
                     } else {
@@ -520,7 +477,7 @@ class FilesystemDisplay {
         this.renderDiskUsage = async fsBlock => {
             if (document.getElementById("fs_space_bar").getAttribute("onclick") !== "" || fsBlock === null) return;
 
-            let splitter = (process.platform === "win32") ? "\\" : "/";
+            let splitter = (window._platform === "win32") ? "\\" : "/";
             let displayMount = (fsBlock.mount.length < 18) ? fsBlock.mount : "..."+splitter+fsBlock.mount.split(splitter).pop();
 
             // See #226
@@ -611,7 +568,7 @@ class FilesystemDisplay {
                     break;
                 default:
                     if (mime.charset(filetype) === "UTF-8") {
-                        fs.readFile(block.path, 'utf-8', (err, data) => {
+                        neodex.invoke("fs-read-text", block.path).then(data => [null, data], err => [err]).then(([err, data]) => {
                             if (err) {
                                 new Modal({
                                     type: "info",

@@ -36,6 +36,23 @@ test("file browser follows the terminal's working directory", async () => {
         await expect.poll(async () => normalise(await title.innerText())).toBe(normalise(dir));
         await expect(page.locator("#fs_disp_container")).toContainText("marker-file.txt");
         await expect(page.locator("section#filesystem > h3.title > p").first()).not.toContainText("TRACKING FAILED");
+
+        // Refreshes when the directory changes (watched by the main process)
+        fs.writeFileSync(path.join(dir, "created-later.txt"), "new");
+        await expect(page.locator("#fs_disp_container")).toContainText("created-later.txt");
+
+        // Opening a text file shows it in the editor, and saving writes it back (through the main process)
+        await inPage(app, () => {
+            const index = window.fsDisp.cwd.findIndex(e => e.name === "marker-file.txt");
+            window.fsDisp.openFile(index);
+        });
+        const editor = page.locator(".modal_popup textarea.fileEdit");
+        await expect(editor).toHaveValue("hello");
+        await inPage(app, () => { document.querySelector(".modal_popup textarea.fileEdit").value = "edited in neoDEX"; });
+        await clickModalButton(app, "Save to Disk");
+        await expect(page.locator(".modal_popup p.fedit-status")).toHaveText("File saved.");
+        expect(fs.readFileSync(path.join(dir, "marker-file.txt"), "utf-8")).toBe("edited in neoDEX");
+        await clickModalButton(app, "Close");
     } finally {
         // Wait until the shell has really left the directory before deleting it (on Linux the backend
         // polls the shell's cwd once a second, and new tabs start in the last cwd it saw)
