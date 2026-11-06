@@ -93,12 +93,24 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history and tags, for the release notes
 
       - uses: actions/download-artifact@v8
         with:
           pattern: installers-*
           path: installers
           merge-multiple: true
+
+      # Notes from the Conventional Commits since the previous version tag (scripts/release-notes.js)
+      - name: Write release notes
+        run: |
+          {
+            echo "> Unsigned builds: Windows SmartScreen and macOS Gatekeeper will warn on first launch (on macOS, right-click the app and choose Open)."
+            echo
+            node scripts/release-notes.js "$GITHUB_REF_NAME"
+          } > release-notes.md
+          cat release-notes.md
 
       - name: Create draft release with the installers
         env:
@@ -109,5 +121,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" installers/* \
             --draft $prerelease \
             --title "neoDEX-UI ${GITHUB_REF_NAME#v}" \
-            --generate-notes \
-            --notes "Unsigned builds: Windows SmartScreen and macOS Gatekeeper will warn on first launch (on macOS, right-click the app and choose Open)."
+            --notes-file release-notes.md
