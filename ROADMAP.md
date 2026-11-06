@@ -26,7 +26,7 @@ The upstream GitHub Actions workflows were removed in November 2026: they target
 
 ## Upgrades and platforms
 
-- [ ] Verify packaging (`prebuild-*` / `build-*`, electron-builder 26, `prebuild-minify.js`).
+- [ ] Verify packaging (`prebuild-*` / `build-*`, electron-builder 26, `prebuild-minify.js`). On macOS, node-pty's `spawn-helper` must stay executable and be unpacked from the asar archive (`asarUnpack`), or shells fail with `posix_spawnp failed` (`scripts/postinstall.js` handles this for development installs).
 - [ ] Test on macOS and Linux. macOS: tab process names use `ps --no-headers`, which BSD `ps` doesn't support.
 - [ ] Replace `geolite2-redist` (deprecated; MaxMind licensing changed) for the globe's GeoIP lookups.
 - [ ] Review the 8 `npm audit` findings at the root.
