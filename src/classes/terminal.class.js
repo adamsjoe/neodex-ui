@@ -26,116 +26,25 @@ class Terminal {
             this.Ipc.send(this.channel, "Resize", cols, rows);
         };
 
-        // Support for custom color filters on the terminal - see #483
-        let doCustomFilter = (window.isTermFilterValidated) ? true : false;
+        // Colours and fonts come from the theme (see src/lib/terminalTheme.js)
+        const { xtermTheme, xtermFontOptions } = require("../lib/terminalTheme.js");
 
-        // Parse & validate color filter
-        if (window.isTermFilterValidated !== true && typeof window.theme.terminal.colorFilter === "object" && window.theme.terminal.colorFilter.length > 0) {
-            doCustomFilter = window.theme.terminal.colorFilter.every((step, i, a) => {
-                let func = step.slice(0, step.indexOf("("));
-
-                switch(func) {
-                    case "negate":
-                    case "grayscale":
-                        a[i] = {
-                            func,
-                            arg: []
-                        };
-                        return true;
-                    case "lighten":
-                    case "darken":
-                    case "saturate":
-                    case "desaturate":
-                    case "whiten":
-                    case "blacken":
-                    case "fade":
-                    case "opaquer":
-                    case "rotate":
-                    case "mix":
-                        break;
-                    default:
-                        return false;
-                }
-
-                let arg = step.slice(step.indexOf("(")+1, step.indexOf(")"));
-
-                if (typeof Number(arg) === "number") {
-                    a[i] = {
-                        func,
-                        arg: [Number(arg)]
-                    };
-                    window.isTermFilterValidated = true;
-                    return true;
-                }
-
-                return false;
-            });
-        }
-
-        let color = require("color");
-        let colorify;
-        if (doCustomFilter) {
-            colorify = (base, target) => {
-                let newColor = color(base);
-                target = color(target);
-
-                for (let i = 0; i < window.theme.terminal.colorFilter.length; i++) {
-                    if (window.theme.terminal.colorFilter[i].func === "mix") {
-                        newColor = newColor[window.theme.terminal.colorFilter[i].func](target, ...window.theme.terminal.colorFilter[i].arg);
-                    } else {
-                        newColor = newColor[window.theme.terminal.colorFilter[i].func](...window.theme.terminal.colorFilter[i].arg);
-                    }
-                }
-
-                return newColor.hex();
-            };
-        } else {
-            colorify = (base, target) => {
-                return color(base).grayscale().mix(color(target), 0.3).hex();
-            };
-        }
-
-        let themeColor = `rgb(${window.theme.r}, ${window.theme.g}, ${window.theme.b})`;
-
-        this.term = new this.xTerm({
+        this.term = new this.xTerm(Object.assign({
             cols: 80,
             rows: 24,
-            cursorBlink: window.theme.terminal.cursorBlink !== false,
-            cursorStyle: window.theme.terminal.cursorStyle || "block",
             allowTransparency: window.theme.terminal.allowTransparency || false,
-            fontFamily: window.theme.terminal.fontFamily || "Fira Mono",
-            fontSize: window.theme.terminal.fontSize || window.settings.termFontSize || 15,
-            fontWeight: window.theme.terminal.fontWeight || "normal",
-            fontWeightBold: window.theme.terminal.fontWeightBold || "bold",
-            letterSpacing: window.theme.terminal.letterSpacing || 0,
-            lineHeight: window.theme.terminal.lineHeight || 1,
             scrollback: 1500,
             // Required by @xterm/addon-ligatures (character joiners are a proposed API)
             allowProposedApi: true,
-            theme: {
-                foreground: window.theme.terminal.foreground,
-                background: window.theme.terminal.background,
-                cursor: window.theme.terminal.cursor,
-                cursorAccent: window.theme.terminal.cursorAccent,
-                selectionBackground: window.theme.terminal.selectionBackground || window.theme.terminal.selection,
-                black: window.theme.colors.black || colorify("#2e3436", themeColor),
-                red: window.theme.colors.red || colorify("#cc0000", themeColor),
-                green: window.theme.colors.green || colorify("#4e9a06", themeColor),
-                yellow: window.theme.colors.yellow || colorify("#c4a000", themeColor),
-                blue: window.theme.colors.blue || colorify("#3465a4", themeColor),
-                magenta: window.theme.colors.magenta || colorify("#75507b", themeColor),
-                cyan: window.theme.colors.cyan || colorify("#06989a", themeColor),
-                white: window.theme.colors.white || colorify("#d3d7cf", themeColor),
-                brightBlack: window.theme.colors.brightBlack || colorify("#555753", themeColor),
-                brightRed: window.theme.colors.brightRed || colorify("#ef2929", themeColor),
-                brightGreen: window.theme.colors.brightGreen || colorify("#8ae234", themeColor),
-                brightYellow: window.theme.colors.brightYellow || colorify("#fce94f", themeColor),
-                brightBlue: window.theme.colors.brightBlue || colorify("#729fcf", themeColor),
-                brightMagenta: window.theme.colors.brightMagenta || colorify("#ad7fa8", themeColor),
-                brightCyan: window.theme.colors.brightCyan || colorify("#34e2e2", themeColor),
-                brightWhite: window.theme.colors.brightWhite || colorify("#eeeeec", themeColor)
-            }
-        });
+            theme: xtermTheme(window.theme)
+        }, xtermFontOptions(window.theme, window.settings)));
+
+        // Re-style this terminal for another theme (used by the settings editor's live preview)
+        this.applyTheme = theme => {
+            this.term.options.theme = xtermTheme(theme);
+            Object.assign(this.term.options, xtermFontOptions(theme, window.settings));
+            this.fit();
+        };
         let fitAddon = new FitAddon();
         this.term.loadAddon(fitAddon);
         this.term.open(document.getElementById(opts.parentId));

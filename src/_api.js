@@ -8,7 +8,8 @@ const os = require("os");
 const path = require("path");
 const net = require("net");
 const https = require("https");
-const { app, shell } = require("electron");
+const { app, shell, screen } = require("electron");
+const { validateSettings } = require("./lib/settingsSchema.js");
 const { pathToFileURL } = require("url");
 const signale = require("signale");
 const { loadConfig } = require("./_config.js");
@@ -65,9 +66,21 @@ module.exports = function registerApi({ handleTrusted, onSyncTrusted, getWindow 
     });
 
     // ---- Config
+    // Validated against the settings schema before anything is written.
+    // Returns { ok: true } or { ok: false, errors: { key: message } }.
     handleTrusted("settings-save", (e, settings) => {
         if (typeof settings !== "object" || settings === null || Array.isArray(settings)) throw new Error("Invalid settings");
+        const { errors } = validateSettings(settings, {
+            themes: listJson(dirs.themes),
+            keyboards: listJson(dirs.keyboards),
+            displayCount: screen.getAllDisplays().length
+        });
+        if (!errors.cwd && typeof settings.cwd === "string" && !fs.existsSync(settings.cwd)) {
+            errors.cwd = "This folder doesn't exist";
+        }
+        if (Object.keys(errors).length > 0) return { ok: false, errors };
         writeJson(files.settings, settings);
+        return { ok: true };
     });
     handleTrusted("window-state-save", (e, state) => {
         if (typeof state !== "object" || state === null || Array.isArray(state)) throw new Error("Invalid window state");

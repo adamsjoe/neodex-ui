@@ -1,0 +1,252 @@
+/* Settings editor (src/classes/settingsEditor.class.js). Colours come from the theme's CSS variables. */
+
+div#settingsEditor {
+    width: 70vh;
+    max-width: 80vw;
+    font-family: var(--font_main_light);
+}
+
+/* Section tabs */
+nav.settings_tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6vh;
+    margin-bottom: 1.5vh;
+    border-bottom: 0.15vh solid rgba(var(--color_r), var(--color_g), var(--color_b), 0.4);
+}
+
+button.settings_tab {
+    background: transparent;
+    border: 0.15vh solid rgba(var(--color_r), var(--color_g), var(--color_b), 0.4);
+    border-bottom: none;
+    color: rgb(var(--color_r), var(--color_g), var(--color_b));
+    font-family: var(--font_main);
+    font-size: 1.4vh;
+    padding: 0.6vh 1.2vh;
+    cursor: pointer;
+    opacity: 0.6;
+}
+
+button.settings_tab.active {
+    background: rgba(var(--color_r), var(--color_g), var(--color_b), 0.2);
+    opacity: 1;
+}
+
+button.settings_tab.invalid::after {
+    content: " !";
+    color: var(--color_red);
+}
+
+/* Sections: one visible at a time */
+section.settings_section {
+    display: none;
+    max-height: 55vh;
+    overflow-y: auto;
+    padding-right: 1vh;
+}
+
+section.settings_section.active {
+    display: block;
+}
+
+/* One setting */
+div.settings_row {
+    display: grid;
+    grid-template-columns: 40% 60%;
+    align-items: center;
+    row-gap: 0.3vh;
+    padding: 1vh 0;
+    border-bottom: 0.1vh solid rgba(var(--color_r), var(--color_g), var(--color_b), 0.15);
+}
+
+div.settings_row > label {
+    font-family: var(--font_main);
+    font-size: 1.5vh;
+}
+
+span.settings_applies {
+    display: inline-block;
+    margin-left: 0.6vh;
+    padding: 0 0.5vh;
+    font-family: var(--font_main_light);
+    font-size: 1vh;
+    text-transform: uppercase;
+    border: 0.1vh solid rgba(var(--color_r), var(--color_g), var(--color_b), 0.5);
+    opacity: 0.7;
+}
+
+p.settings_help {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 1.2vh;
+    opacity: 0.6;
+}
+
+p.settings_help:empty {
+    display: none;
+}
+
+p.settings_error {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 1.3vh;
+    color: var(--color_red);
+}
+
+p.settings_error:empty {
+    display: none;
+}
+
+div.settings_row.invalid input,
+div.settings_row.invalid select,
+div.settings_row.invalid textarea {
+    border-color: var(--color_red) !important;
+}
+
+/* Controls */
+div.settings_control input[type="text"],
+div.settings_control input[type="number"],
+div.settings_control select,
+div.settings_control textarea {
+    box-sizing: border-box;
+    width: 100%;
+    background: var(--color_light_black);
+    color: rgb(var(--color_r), var(--color_g), var(--color_b));
+    border: 0.15vh solid rgba(var(--color_r), var(--color_g), var(--color_b), 0.5);
+    font-family: var(--font_mono);
+    font-size: 1.4vh;
+    padding: 0.5vh 0.8vh;
+}
+
+div.settings_control select option {
+    background: var(--color_light_black);
+}
+
+div.settings_control input:focus,
+div.settings_control select:focus,
+div.settings_control textarea:focus {
+    outline: none;
+    border-color: rgb(var(--color_r), var(--color_g), var(--color_b));
+}
+
+/* On/off switch */
+label.settings_switch {
+    position: relative;
+    display: inline-block;
+    width: 4.4vh;
+    height: 2.2vh;
+    cursor: pointer;
+}
+
+label.settings_switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+label.settings_switch span {
+    position: absolute;
+    inset: 0;
+    border: 0.15vh solid rgba(var(--color_r), var(--color_g), var(--color_b), 0.6);
+    transition: background 0.15s;
+}
+
+label.settings_switch span::before {
+    content: "";
+    position: absolute;
+    top: 0.3vh;
+    left: 0.3vh;
+    width: 1.3vh;
+    height: 1.3vh;
+    background: rgba(var(--color_r), var(--color_g), var(--color_b), 0.6);
+    transition: transform 0.15s;
+}
+
+label.settings_switch input:checked + span {
+    background: rgba(var(--color_r), var(--color_g), var(--color_b), 0.25);
+}
+
+label.settings_switch input:checked + span::before {
+    background: rgb(var(--color_r), var(--color_g), var(--color_b));
+    transform: translateX(2.2vh);
+}
+
+/* Theme picker */
+div.settings_themes {
+    grid-template-columns: 1fr;
+}
+
+div.theme_grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14vh, 1fr));
+    gap: 1vh;
+    margin-top: 0.5vh;
+}
+
+button.theme_card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6vh;
+    padding: 1vh;
+    border: 0.15vh solid;
+    cursor: pointer;
+    text-align: left;
+    opacity: 0.75;
+}
+
+button.theme_card:hover {
+    opacity: 1;
+}
+
+button.theme_card.selected {
+    opacity: 1;
+    outline: 0.3vh solid rgb(var(--color_r), var(--color_g), var(--color_b));
+    outline-offset: 0.2vh;
+}
+
+span.theme_name {
+    font-family: var(--font_main);
+    font-size: 1.4vh;
+}
+
+span.theme_swatches {
+    display: flex;
+    gap: 0.3vh;
+}
+
+span.theme_swatches span {
+    width: 1.6vh;
+    height: 1.6vh;
+    border: 0.1vh solid rgba(128, 128, 128, 0.5);
+}
+
+span.theme_font {
+    font-size: 1.1vh;
+    opacity: 0.7;
+}
+
+/* Footer */
+div.settings_footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1vh;
+    margin-top: 1vh;
+}
+
+p#settingsEditorStatus {
+    margin: 0;
+    font-size: 1.4vh;
+    font-style: italic;
+}
+
+button#settingsEditor-apply {
+    background: rgba(var(--color_r), var(--color_g), var(--color_b), 0.2);
+    color: rgb(var(--color_r), var(--color_g), var(--color_b));
+    border: 0.15vh solid rgb(var(--color_r), var(--color_g), var(--color_b));
+    font-family: var(--font_main);
+    font-size: 1.4vh;
+    padding: 0.5vh 1.2vh;
+    cursor: pointer;
+}

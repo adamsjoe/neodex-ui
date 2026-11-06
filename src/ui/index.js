@@ -21,7 +21,8 @@ const classes = [
     require("../classes/ramwatcher.class.js"),
     require("../classes/toplist.class.js"),
     require("../classes/fuzzyFinder.class.js"),
-    require("../classes/audiofx.class.js")
+    require("../classes/audiofx.class.js"),
+    require("../classes/settingsEditor.class.js")
 ];
 for (const exported of classes) Object.assign(window, exported);
 

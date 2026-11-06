@@ -44,4 +44,5 @@ The upstream GitHub Actions workflows were removed in November 2026: they target
 - [x] Keep the in-app PDF viewer (pdf.js 6, running in the isolated page; covered by the end-to-end tests).
 - [x] Config files are parsed safely (`src/lib/config.js`): invalid JSON or the wrong shape falls back to defaults with a warning in the UI, missing keys get defaults, and a missing `cwd` falls back to the home folder.
 - [ ] Stop overwriting the built-in themes on every start.
-- [ ] Validate individual setting values (types/ranges) and version the settings format.
+- [x] Settings editor with per-setting validation (`src/lib/settingsSchema.js`, also enforced by the main process on save) and a theme picker with live preview.
+- [ ] Version the settings format (migrations between releases).
