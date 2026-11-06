@@ -13,13 +13,13 @@ The upstream GitHub Actions workflows were removed in November 2026: they target
 
 ## Testing
 
-- [ ] Isolated config dir for tests (e.g. an `EDEX_USER_DATA`-style env var in `_boot.js`) so test runs never touch the real settings.
-- [ ] Playwright Electron smoke suite: boot without error modals, terminal round trip (main shell and a second tab), file browser follows `cd`, settings modal buttons, layout checks at 16:9 / 16:10 / 21:9 / 4:3, nothing listening on the old port 3000, untrusted IPC rejected.
+- [x] Isolated config dir for tests (`NEODEX_USER_DATA`), so test runs never touch the real settings.
+- [x] Playwright Electron end-to-end suite (`npm test`, see `tests/e2e/README.md`): boot, terminals, file browser, settings, layout at five ratios, security regressions.
 - [ ] `node:test` unit tests for main-process logic (shell integration args, OSC cwd parsing, IPC sender checks, systeminformation allowlist, `env` setting validation), after extracting it from the classes.
 
 ## Security
 
-- [ ] Enable `contextIsolation` and the sandbox with a preload/`contextBridge` API. Requires moving the renderer's direct `fs` use (file browser, settings, themes) behind IPC.
+- [ ] Enable `contextIsolation` and the sandbox with a preload/`contextBridge` API. Requires moving the renderer's direct `fs` use (file browser, settings, themes) behind IPC. Then the CSP's missing `'unsafe-eval'` takes effect (Chromium ignores it while `nodeIntegration` is on): drop the `window.eval` override in `_renderer.js` and extend the eval test in `security.spec.js` to cover `new Function()`.
 - [ ] Remove the remaining inline `onclick` handlers (keyboard, file browser, shell tabs) so the CSP can drop `'unsafe-inline'`. Includes the disk-path string in `filesystem.class.js` (`readFS("${e.path}")`).
 - [ ] Make the `myexternalip.com` lookup (runs on every start) opt-in.
 

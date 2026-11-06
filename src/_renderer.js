@@ -1,7 +1,10 @@
-// Disable eval()
+// Disable eval(). The CSP in ui.html has no 'unsafe-eval', but Chromium doesn't enforce that while
+// nodeIntegration is on, so this override is the only thing blocking it. It's a weak guard (new Function()
+// and Node's vm module get around it); the real fix is contextIsolation, after which the CSP applies.
 window.eval = global.eval = function () {
     throw new Error("eval() is disabled for security reasons.");
 };
+
 // Security helper :)
 window._escapeHtml = text => {
     let map = {

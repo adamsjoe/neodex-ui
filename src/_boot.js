@@ -21,6 +21,13 @@ signale.start(`Starting neoDEX-UI v${app.getVersion()}`);
 signale.info(`With Node ${process.versions.node} and Electron ${process.versions.electron}`);
 signale.info(`Renderer is Chrome ${process.versions.chrome}`);
 
+// Alternative config directory, used by the automated tests so they never touch the real settings.
+// Must be set before anything reads userData, including the single-instance lock (which is per directory).
+if (process.env.NEODEX_USER_DATA) {
+    app.setPath("userData", require("path").resolve(process.env.NEODEX_USER_DATA));
+    signale.info(`Using config dir from NEODEX_USER_DATA`);
+}
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
     signale.fatal("Error: Another instance of neoDEX-UI is already running. Cannot proceed.");
@@ -35,6 +42,7 @@ const path = require("path");
 const fs = require("fs");
 const which = require("which");
 const Terminal = require("./classes/terminal.class.js").Terminal;
+const {defaultSettings, defaultShortcuts} = require("./_defaults.js");
 
 var win, tty, extraTtys;
 
@@ -89,48 +97,12 @@ try {
 }
 // Create default settings file
 if (!fs.existsSync(settingsFile)) {
-    fs.writeFileSync(settingsFile, JSON.stringify({
-        shell: (process.platform === "win32") ? "powershell.exe" : "bash",
-        shellArgs: '',
-        cwd: electron.app.getPath("userData"),
-        keyboard: "en-US",
-        theme: "tron",
-        termFontSize: 15,
-        audio: true,
-        audioVolume: 1.0,
-        disableFeedbackAudio: false,
-        clockHours: 24,
-        pingAddr: "1.1.1.1",
-        nointro: false,
-        nocursor: false,
-        forceFullscreen: true,
-        allowWindowed: false,
-        excludeThreadsFromToplist: true,
-        hideDotfiles: false,
-        fsListView: false,
-        experimentalGlobeFeatures: true,
-        experimentalFeatures: false
-    }, "", 4));
+    fs.writeFileSync(settingsFile, JSON.stringify(defaultSettings({platform: process.platform, userData: electron.app.getPath("userData")}), "", 4));
     signale.info(`Default settings written to ${settingsFile}`);
 }
 // Create default shortcuts file
 if (!fs.existsSync(shortcutsFile)) {
-    fs.writeFileSync(shortcutsFile, JSON.stringify([
-        { type: "app", trigger: "Ctrl+Shift+C", action: "COPY", enabled: true },
-        { type: "app", trigger: "Ctrl+Shift+V", action: "PASTE", enabled: true },
-        { type: "app", trigger: "Ctrl+Tab", action: "NEXT_TAB", enabled: true },
-        { type: "app", trigger: "Ctrl+Shift+Tab", action: "PREVIOUS_TAB", enabled: true },
-        { type: "app", trigger: "Ctrl+X", action: "TAB_X", enabled: true },
-        { type: "app", trigger: "Ctrl+Shift+S", action: "SETTINGS", enabled: true },
-        { type: "app", trigger: "Ctrl+Shift+K", action: "SHORTCUTS", enabled: true },
-        { type: "app", trigger: "Ctrl+Shift+F", action: "FUZZY_SEARCH", enabled: true },
-        { type: "app", trigger: "Ctrl+Shift+L", action: "FS_LIST_VIEW", enabled: true },
-        { type: "app", trigger: "Ctrl+Shift+H", action: "FS_DOTFILES", enabled: true },
-        { type: "app", trigger: "Ctrl+Shift+P", action: "KB_PASSMODE", enabled: true },
-        { type: "app", trigger: "Ctrl+Shift+I", action: "DEV_DEBUG", enabled: false },
-        { type: "app", trigger: "Ctrl+Shift+F5", action: "DEV_RELOAD", enabled: true },
-        { type: "shell", trigger: "Ctrl+Shift+Alt+Space", action: "neofetch", linebreak: true, enabled: false }
-    ], "", 4));
+    fs.writeFileSync(shortcutsFile, JSON.stringify(defaultShortcuts(), "", 4));
     signale.info(`Default keymap written to ${shortcutsFile}`);
 }
 //Create default window state file
