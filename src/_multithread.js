@@ -14,7 +14,10 @@ const POOL_SIZE = 2;
 
 module.exports = function initSystemInformationBackend(ipc, isTrustedSender) {
     const workers = [];
-    const pending = new Map(); // request id -> { sender, worker }
+    // In-flight calls, keyed by call (type + arguments). Identical requests made while one is running
+    // share its result: the UI polls on timers, and on slow machines (some calls take seconds on Windows)
+    // separate requests would queue up faster than they're answered.
+    const inFlight = new Map(); // key -> { worker, waiters: [{ sender, id }] }
     let next = 0;
     let quitting = false;
 
@@ -26,18 +29,18 @@ module.exports = function initSystemInformationBackend(ipc, isTrustedSender) {
         const worker = utilityProcess.fork(path.join(__dirname, "_siWorker.js"), [], {
             serviceName: "neoDEX-UI systeminformation"
         });
-        worker.on("message", ({ id, res }) => {
-            const request = pending.get(id);
-            if (!request) return;
-            pending.delete(id);
-            reply(request.sender, id, res);
+        worker.on("message", ({ id: key, res }) => {
+            const call = inFlight.get(key);
+            if (!call) return;
+            inFlight.delete(key);
+            call.waiters.forEach(w => reply(w.sender, w.id, res));
         });
         worker.on("exit", code => {
             // Answer anything this worker was still handling, then replace it
-            for (const [id, request] of pending) {
-                if (request.worker === worker) {
-                    pending.delete(id);
-                    reply(request.sender, id, null);
+            for (const [key, call] of inFlight) {
+                if (call.worker === worker) {
+                    inFlight.delete(key);
+                    call.waiters.forEach(w => reply(w.sender, w.id, null));
                 }
             }
             if (!quitting) {
@@ -65,10 +68,21 @@ module.exports = function initSystemInformationBackend(ipc, isTrustedSender) {
         }
         if (typeof id !== "string") return;
 
+        let key;
+        try {
+            key = type + ":" + JSON.stringify(args);
+        } catch (err) {
+            return; // arguments must be serialisable anyway
+        }
+        const existing = inFlight.get(key);
+        if (existing) {
+            existing.waiters.push({ sender: e.sender, id });
+            return;
+        }
         const worker = workers[next];
         next = (next + 1) % POOL_SIZE;
-        pending.set(id, { sender: e.sender, worker });
-        worker.postMessage({ id, type, args });
+        inFlight.set(key, { worker, waiters: [{ sender: e.sender, id }] });
+        worker.postMessage({ id: key, type, args });
     });
 
     signale.success(`Systeminformation backend ready (${POOL_SIZE} utility processes)`);

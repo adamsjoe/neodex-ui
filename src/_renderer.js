@@ -609,7 +609,11 @@ window.openSettings = async () => {
     for (let i = 0; i < displayCount; i++) {
         if (i !== window.settings.monitor) monitors += `<option>${i}</option>`;
     }
-    let nets = await window.si.networkInterfaces();
+    // The interface list can be slow (seconds on some Windows machines): don't hold up the dialog for it
+    let nets = await Promise.race([
+        window.si.networkInterfaces().then(n => Array.isArray(n) ? n : []),
+        _delay(3000).then(() => [])
+    ]);
     nets.forEach(net => {
         if (net.iface !== window.mods.netstat.iface) ifaces += `<option>${esc(net.iface)}</option>`;
     });
