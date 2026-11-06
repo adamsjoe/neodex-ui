@@ -1,0 +1,70 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            src/package-lock.json
+
+      # Installs root dev tooling, then the app's dependencies in src/ (postinstall).
+      # node-pty uses prebuilt binaries on Windows/macOS and compiles on Linux (approved in src/package.json).
+      - name: Install dependencies
+        run: npm ci
+
+      # Electron 45 otherwise downloads its binary on first launch, in the middle of the first test
+      - name: Download Electron
+        run: node node_modules/electron/install.js
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      # Ubuntu 24.04 blocks the unprivileged user namespaces Chromium's sandbox needs
+      - name: Allow Chromium sandbox (Linux)
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: End-to-end tests
+        if: runner.os != 'Linux'
+        run: npm run test:e2e
+
+      - name: End-to-end tests (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 2560x1440x24" npm run test:e2e
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ matrix.os }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7

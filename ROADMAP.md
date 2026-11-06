@@ -6,7 +6,7 @@ Outstanding work for neoDEX-UI, roughly in priority order.
 
 The upstream GitHub Actions workflows were removed in November 2026: they targeted Node 14, npm 7 and CodeQL v1 and could no longer run. Restore these when there's something for them to do:
 
-- [ ] **Tests on every push/PR.** The tests now exist (`npm test` runs unit + end-to-end): Node 22, `actions/*@v4`, run on Windows, macOS and Linux runners (Linux needs `xvfb` for Electron, and `npm approve-scripts node-pty` to build node-pty).
+- [x] **Tests on every push/PR** (`.github/workflows/test.yml`): unit + end-to-end on Windows, macOS and Linux runners.
 - [ ] **Release builds.** Once packaging is verified with electron-builder 26: build the Windows installer, macOS dmg and Linux AppImages on tag push, and attach them to a GitHub release. Use native ARM runners rather than QEMU for arm64.
 - [ ] **CodeQL** (v3) for JavaScript, on push to `master` and weekly.
 - [ ] Turn on **Dependabot alerts** and **private vulnerability reporting** in the repo settings (no workflow needed; `SECURITY.md` already points at private reporting).
