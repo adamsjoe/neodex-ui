@@ -9,6 +9,7 @@ module.exports = defineConfig({
     timeout: 90 * 1000,
     expect: { timeout: 15 * 1000 },
     retries: process.env.CI ? 1 : 0,
-    reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
+    // On CI, "github" turns each failure into an annotation on the workflow run (readable without the logs)
+    reporter: process.env.CI ? [["github"], ["list"], ["html", { open: "never" }]] : "list",
     outputDir: "test-results"
 });
