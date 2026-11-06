@@ -7,7 +7,7 @@ Outstanding work for neoDEX-UI, roughly in priority order.
 The upstream GitHub Actions workflows were removed in November 2026: they targeted Node 14, npm 7 and CodeQL v1 and could no longer run. Restore these when there's something for them to do:
 
 - [x] **Tests on every push/PR** (`.github/workflows/test.yml`): unit + end-to-end on Windows, macOS and Linux runners.
-- [ ] **Release builds.** Once packaging is verified with electron-builder 26: build the Windows installer, macOS dmg and Linux AppImages on tag push, and attach them to a GitHub release. Use native ARM runners rather than QEMU for arm64.
+- [ ] **Release builds.** CI already builds and tests the installers on every push (the `package` job); what's left is publishing them to a GitHub release on tag push, and code signing (Windows SmartScreen / macOS Gatekeeper).
 - [ ] **CodeQL** (v3) for JavaScript, on push to `master` and weekly.
 - [ ] Turn on **Dependabot alerts** and **private vulnerability reporting** in the repo settings (no workflow needed; `SECURITY.md` already points at private reporting).
 
@@ -26,7 +26,7 @@ The upstream GitHub Actions workflows were removed in November 2026: they target
 
 ## Upgrades and platforms
 
-- [ ] Verify packaging (`prebuild-*` / `build-*`, electron-builder 26, `prebuild-minify.js`); the `prebuild-*` scripts now build the UI bundle first. On macOS, node-pty's `spawn-helper` must stay executable and be unpacked from the asar archive (`asarUnpack`), or shells fail with `posix_spawnp failed` (`scripts/postinstall.js` handles this for development installs).
+- [x] Packaging verified: `npm run package` builds the Windows (NSIS), macOS (dmg, x64 + arm64) and Linux (AppImage) installers, and CI runs the end-to-end suite against each packaged app and uploads the installers.
 - [ ] Test on macOS and Linux. macOS: tab process names use `ps --no-headers`, which BSD `ps` doesn't support.
 - [ ] Replace `geolite2-redist` (deprecated; MaxMind licensing changed) for the globe's GeoIP lookups.
 - [ ] Review the 8 `npm audit` findings at the root.
