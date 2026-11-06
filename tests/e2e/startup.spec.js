@@ -27,8 +27,8 @@ test("a shell that can't be started makes the app exit with an error instead of 
             const timer = setTimeout(() => reject(new Error(`app did not exit within 30s\n${log}`)), 30 * 1000);
             app.process().once("exit", code => { clearTimeout(timer); resolve(code); });
         });
-        expect(exitCode).toBe(1);
-        expect(log).toMatch(/fatal/i);
+        // (Not asserting on the log: the crash can happen before the output listeners are attached)
+        expect(exitCode, log).toBe(1);
     } finally {
         await app.close().catch(() => {});
         fs.rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
