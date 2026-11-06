@@ -33,20 +33,21 @@ div#mod_toplist::after {
 div#mod_toplist h1 {
     font-size: 1.48vh;
     margin: 0vh;
-    margin-bottom: -1vh;
     width: 97%;
     padding-left: 0.5vh;
 }
 
-div#mod_toplist i {
-    font-style: normal;
+/* Column headings, aligned with the columns below */
+table#mod_toplist_table th {
+    font-family: var(--font_main_light);
+    font-weight: normal;
     font-size: 1.20vh;
     opacity: 0.5;
+    text-align: left;
+    padding-bottom: 0.2vh;
+}
+table#mod_toplist_table th:nth-child(3), table#mod_toplist_table th:nth-child(4) {
     text-align: right;
-    display: inline-block;
-    position: relative;
-    bottom: 1.6vh;
-    width: 100%;
 }
 
 table#mod_toplist_table {

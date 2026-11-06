@@ -18,7 +18,7 @@ class FuzzyFinder {
                     <li></li>
                 </ul>`,
             buttons: [
-                {label: "Select", action: "window.activeFuzzyFinder.submit()"}
+                {label: "Select", action: () => window.activeFuzzyFinder.submit()}
             ]
         }, () => {
             delete window.activeFuzzyFinder;

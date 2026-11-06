@@ -1,89 +1,36 @@
-const cluster = require("cluster");
+// Backend for the renderer's window.si proxy (see initSystemInformationProxy in _renderer.js).
+//
+// This used to fan calls out to a pool of `cluster` workers. systeminformation's calls are
+// asynchronous and mostly spawn OS commands, so they already run in parallel without blocking the
+// main process; running them here directly avoids forking extra Electron processes.
 
-if (cluster.isMaster) {
-    const electron = require("electron");
-    const ipc = electron.ipcMain;
-    const signale = require("signale");
-    // Also, leave a core available for the renderer process
-    const osCPUs = require("os").cpus().length - 1;
-    // See #904
-    const numCPUs = (osCPUs > 7) ? 7 : osCPUs;
+const signale = require("signale");
+const si = require("systeminformation");
 
-    const si = require("systeminformation");
-
-    cluster.setupMaster({
-        exec: require("path").join(__dirname, "_multithread.js")
-    });
-
-    let workers = [];
-    cluster.on("fork", worker => {
-        workers.push(worker.id);
-    });
-
-    for (let i = 0; i < numCPUs; i++) {
-        cluster.fork();
-    }
-
-    signale.success("Multithreaded controller ready");
-
-    var lastID = 0;
-
-    function dispatch(type, id, arg) {
-        let selectedID = lastID+1;
-        if (selectedID > numCPUs-1) selectedID = 0;
-
-        cluster.workers[workers[selectedID]].send(JSON.stringify({
-            id,
-            type,
-            arg
-        }));
-
-        lastID = selectedID;
-    }
-
-    var queue = {};
+module.exports = function initSystemInformationBackend(ipc, isTrustedSender) {
     ipc.on("systeminformation-call", (e, type, id, ...args) => {
-        if (!si[type]) {
+        if (!isTrustedSender(e.sender)) {
+            signale.warn("Rejected systeminformation request from untrusted sender");
+            return;
+        }
+        if (typeof type !== "string" || !Object.prototype.hasOwnProperty.call(si, type) || typeof si[type] !== "function") {
             signale.warn("Illegal request for systeminformation");
             return;
         }
+        if (typeof id !== "string") return;
 
-        if (args.length > 1 || workers.length <= 0) {
-            si[type](...args).then(res => {
-                if (e.sender) {
+        Promise.resolve()
+            .then(() => si[type](...args))
+            .catch(err => {
+                signale.debug(`systeminformation.${type} failed: ${err && err.message}`);
+                return null;
+            })
+            .then(res => {
+                if (!e.sender.isDestroyed()) {
                     e.sender.send("systeminformation-reply-"+id, res);
                 }
             });
-        } else {
-            queue[id] = e.sender;
-            dispatch(type, id, args[0]);
-        }
     });
 
-    cluster.on("message", (worker, msg) => {
-        msg = JSON.parse(msg);
-        try {
-            if (!queue[msg.id].isDestroyed()) {
-                queue[msg.id].send("systeminformation-reply-"+msg.id, msg.res);
-                delete queue[msg.id];
-            }
-        } catch(e) {
-            // Window has been closed, ignore.
-        }
-    });
-} else if (cluster.isWorker) {
-    const signale = require("signale");
-    const si = require("systeminformation");
-
-    signale.info("Multithread worker started at "+process.pid);
-
-    process.on("message", msg => {
-        msg = JSON.parse(msg);
-        si[msg.type](msg.arg).then(res => {
-            process.send(JSON.stringify({
-                id: msg.id,
-                res
-            }));
-        });
-    });
-}
+    signale.success("Systeminformation backend ready");
+};

@@ -7,7 +7,7 @@ class Modal {
         this.type = options.type;
         this.id = require("nanoid").nanoid();
         while (typeof window.modals[this.id] !== "undefined") {
-            this.id = require("nanoid")();
+            this.id = require("nanoid").nanoid();
         }
         this.title = options.title || options.type || "Modal window";
         this.message = options.message || "Lorem ipsum dolor sit amet.";
@@ -24,26 +24,26 @@ class Modal {
             case "error":
                 this.classes += " error";
                 zindex = 1500;
-                buttons.push({label:"PANIC", action:"window.modals['"+this.id+"'].close();"}, {label:"RELOAD", action:"window.location.reload(true);"});
+                buttons.push({label:"PANIC", action: () => this.close()}, {label:"RELOAD", action: () => window.location.reload(true)});
                 augs.push("tr-clip", "bl-rect", "r-clip");
                 break;
             case "warning":
                 this.classes += " warning";
                 zindex = 1000;
-                buttons.push({label:"OK", action:"window.modals['"+this.id+"'].close();"});
+                buttons.push({label:"OK", action: () => this.close()});
                 augs.push("bl-clip", "tr-clip", "r-rect", "b-rect");
                 break;
             case "custom":
                 this.classes += " info custom";
                 zindex = 500;
-                buttons = options.buttons || [];
-                buttons.push({label:"Close", action:"window.modals['"+this.id+"'].close();"});
+                buttons = (options.buttons || []).slice();
+                buttons.push({label:"Close", action: () => this.close()});
                 augs.push("tr-clip", "bl-clip");
                 break;
             default:
                 this.classes += " info";
                 zindex = 500;
-                buttons.push({label:"OK", action:"window.modals['"+this.id+"'].close();"});
+                buttons.push({label:"OK", action: () => this.close()});
                 augs.push("tr-clip", "bl-clip");
                 break;
         }
@@ -51,11 +51,7 @@ class Modal {
         let DOMstring = `<div id="modal_${this.id}" class="${this.classes}" style="z-index:${zindex+Object.keys(window.modals).length};" augmented-ui="${augs.join(" ")} exe">
             <h1>${this.title}</h1>
             ${this.type === "custom" ? options.html : "<h5>"+this.message+"</h5>"}
-            <div>`;
-            buttons.forEach(b => {
-                DOMstring += `<button onclick="${b.action}">${b.label}</button>`;
-            });
-        DOMstring += `</div>
+            <div class="modal_buttons"></div>
         </div>`;
 
         this.close = () => {
@@ -89,6 +85,18 @@ class Modal {
         let tmp = document.createElement("div");
         tmp.innerHTML = DOMstring;
         let element = tmp.firstChild;
+
+        // Buttons are wired with real listeners: actions must be functions, never code strings
+        let buttonsContainer = element.querySelector(":scope > div.modal_buttons");
+        buttons.forEach(b => {
+            if (typeof b.action !== "function") {
+                throw new TypeError("Modal button actions must be functions");
+            }
+            let button = document.createElement("button");
+            button.textContent = b.label;
+            button.addEventListener("click", e => b.action(e));
+            buttonsContainer.appendChild(button);
+        });
 
         element.addEventListener("mousedown", () => {
             this.focus();

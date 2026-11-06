@@ -3,14 +3,13 @@ class Terminal {
         if (opts.role === "client") {
             if (!opts.parentId) throw "Missing options";
 
-            this.xTerm = require("xterm").Terminal;
-            const {AttachAddon} = require("xterm-addon-attach");
-            const {FitAddon} = require("xterm-addon-fit");
-            const {LigaturesAddon} = require("xterm-addon-ligatures");
-            const {WebglAddon} = require("xterm-addon-webgl");
+            this.xTerm = require("@xterm/xterm").Terminal;
+            const {FitAddon} = require("@xterm/addon-fit");
             this.Ipc = require("electron").ipcRenderer;
 
-            this.port = opts.port || 3000;
+            // Terminal ID, matching a pty in the main process. Data is exchanged over IPC.
+            this.id = opts.id || 0;
+            this.channel = "terminal_channel-"+this.id;
             this.cwd = "";
             this.oncwdchange = () => {};
 
@@ -23,7 +22,7 @@ class Terminal {
                 while (rows.length < 3) {
                     rows = "0"+rows;
                 }
-                this.Ipc.send("terminal_channel-"+this.port, "Resize", cols, rows);
+                this.Ipc.send(this.channel, "Resize", cols, rows);
             };
 
             // Support for custom color filters on the terminal - see #483
@@ -100,7 +99,7 @@ class Terminal {
             this.term = new this.xTerm({
                 cols: 80,
                 rows: 24,
-                cursorBlink: window.theme.terminal.cursorBlink || true,
+                cursorBlink: window.theme.terminal.cursorBlink !== false,
                 cursorStyle: window.theme.terminal.cursorStyle || "block",
                 allowTransparency: window.theme.terminal.allowTransparency || false,
                 fontFamily: window.theme.terminal.fontFamily || "Fira Mono",
@@ -110,13 +109,14 @@ class Terminal {
                 letterSpacing: window.theme.terminal.letterSpacing || 0,
                 lineHeight: window.theme.terminal.lineHeight || 1,
                 scrollback: 1500,
-                bellStyle: "none",
+                // Required by @xterm/addon-ligatures (character joiners are a proposed API)
+                allowProposedApi: true,
                 theme: {
                     foreground: window.theme.terminal.foreground,
                     background: window.theme.terminal.background,
                     cursor: window.theme.terminal.cursor,
                     cursorAccent: window.theme.terminal.cursorAccent,
-                    selection: window.theme.terminal.selection,
+                    selectionBackground: window.theme.terminal.selectionBackground || window.theme.terminal.selection,
                     black: window.theme.colors.black || colorify("#2e3436", themeColor),
                     red: window.theme.colors.red || colorify("#cc0000", themeColor),
                     green: window.theme.colors.green || colorify("#4e9a06", themeColor),
@@ -138,9 +138,13 @@ class Terminal {
             let fitAddon = new FitAddon();
             this.term.loadAddon(fitAddon);
             this.term.open(document.getElementById(opts.parentId));
-            this.term.loadAddon(new WebglAddon());
-            let ligaturesAddon = new LigaturesAddon();
-            this.term.loadAddon(ligaturesAddon);
+            // Uses xterm's default DOM renderer. @xterm/addon-webgl 0.19 ignores web fonts loaded by the page
+            // (it falls back to a system sans-serif and mis-measures cells), which made the text unreadable.
+            // @xterm/addon-ligatures 0.10.0 only ships an ES module build (its CommonJS "main" is missing),
+            // so it's loaded asynchronously. Ligatures are cosmetic: failures never block the terminal.
+            import(new URL("node_modules/@xterm/addon-ligatures/lib/addon-ligatures.mjs", document.baseURI).href)
+                .then(({LigaturesAddon}) => this.term.loadAddon(new LigaturesAddon()))
+                .catch(e => console.warn("Ligatures addon failed to load", e));
             this.term.attachCustomKeyEventHandler(e => {
                 window.keyboard.keydownHandler(e);
                 return true;
@@ -149,9 +153,42 @@ class Terminal {
             document.querySelectorAll('.xterm-helper-textarea').forEach(textarea => textarea.setAttribute('readonly', 'readonly'))
             this.term.focus();
 
-            this.Ipc.send("terminal_channel-"+this.port, "Renderer startup");
-            this.Ipc.on("terminal_channel-"+this.port, (e, ...args) => {
+            this.lastSoundFX = Date.now();
+            this._onPtyData = data => {
+                this.term.write(data);
+
+                let d = Date.now();
+                if (d - this.lastSoundFX > 30) {
+                    if(window.passwordMode == "false")
+                        window.audioManager.stdout.play();
+                    this.lastSoundFX = d;
+                }
+                if (d - this.lastRefit > 10000) {
+                    this.fit();
+                }
+
+                // See #397
+                if (!window.settings.experimentalGlobeFeatures) return;
+                let ips = data.match(/((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/g);
+                if (ips !== null && ips.length >= 1) {
+                    ips = ips.filter((val, index, self) => { return self.indexOf(val) === index; });
+                    ips.forEach(ip => {
+                        window.mods.globe.addTemporaryConnectedMarker(ip);
+                    });
+                }
+            };
+
+            this._ipcListener = (e, ...args) => {
                 switch(args[0]) {
+                    case "Data":
+                        this._onPtyData(args[1]);
+                        break;
+                    case "Exit":
+                        this.Ipc.removeListener(this.channel, this._ipcListener);
+                        if (this.onclose) {
+                            this.onclose({code: args[1], signal: args[2]});
+                        }
+                        break;
                     case "New cwd":
                         this.cwd = args[1];
                         this.oncwdchange(this.cwd);
@@ -168,50 +205,50 @@ class Terminal {
                     default:
                         return;
                 }
+            };
+            this.Ipc.on(this.channel, this._ipcListener);
+
+            // Shell integration: shells report their working directory through escape sequences in the
+            // prompt. Needed on Windows, where the backend can't read another process's cwd.
+            //   OSC 9;9;"<path>"        (Windows Terminal / ConEmu convention, used by our PowerShell & cmd setup)
+            //   OSC 7;file://host/path  (common on Unix shells)
+            this._setCwdFromShell = cwd => {
+                if (!cwd || cwd === this.cwd) return;
+                this.cwd = cwd;
+                this.oncwdchange(this.cwd);
+                this.Ipc.send(this.channel, "Cwd", cwd);
+            };
+            this.term.parser.registerOscHandler(9, data => {
+                if (!data.startsWith("9;")) return false; // other OSC 9 uses (e.g. notifications)
+                this._setCwdFromShell(data.slice(2).replace(/^"(.*)"$/, "$1"));
+                return true;
             });
+            this.term.parser.registerOscHandler(7, data => {
+                try {
+                    let url = new URL(data);
+                    if (url.protocol !== "file:") return false;
+                    let p = decodeURIComponent(url.pathname);
+                    if (process.platform === "win32") p = p.replace(/^\/([a-zA-Z]:)/, "$1").replace(/\//g, "\\");
+                    this._setCwdFromShell(p);
+                    return true;
+                } catch(e) {
+                    return false;
+                }
+            });
+
             this.resendCWD = () => {
                 this.oncwdchange(this.cwd || null);
             };
 
-            let sockHost = opts.host || "127.0.0.1";
-            let sockPort = this.port;
-
-            this.socket = new WebSocket("ws://"+sockHost+":"+sockPort);
-            this.socket.onopen = () => {
-                let attachAddon = new AttachAddon(this.socket);
-                this.term.loadAddon(attachAddon);
-                this.fit();
-            };
-            this.socket.onerror = e => {throw JSON.stringify(e)};
-            this.socket.onclose = e => {
-                if (this.onclose) {
-                    this.onclose(e);
-                }
-            };
-
-            this.lastSoundFX = Date.now();
-            this.socket.addEventListener("message", e => {
-                let d = Date.now();
-
-                if (d - this.lastSoundFX > 30) {
-                    if(window.passwordMode == "false")
-                        window.audioManager.stdout.play();
-                    this.lastSoundFX = d;
-                }
-                if (d - this.lastRefit > 10000) {
-                    this.fit();
-                }
-
-                // See #397
-                if (!window.settings.experimentalGlobeFeatures) return;
-                let ips = e.data.match(/((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)/g);
-                if (ips !== null && ips.length >= 1) {
-                    ips = ips.filter((val, index, self) => { return self.indexOf(val) === index; });
-                    ips.forEach(ip => {
-                        window.mods.globe.addTemporaryConnectedMarker(ip);
-                    });
-                }
+            // User input -> pty
+            this.term.onData(data => {
+                this.Ipc.send(this.channel, "Data", data);
             });
+            this.term.onBinary(data => {
+                this.Ipc.send(this.channel, "Binary", data);
+            });
+
+            this.Ipc.send(this.channel, "Renderer startup");
 
             let parent = document.getElementById(opts.parentId);
             parent.addEventListener("wheel", e => {
@@ -245,7 +282,10 @@ class Terminal {
 
             this.fit = () => {
                 this.lastRefit = Date.now();
-                let {cols, rows} = fitAddon.proposeDimensions();
+                let dims = fitAddon.proposeDimensions();
+                // Undefined while the terminal is hidden (e.g. inactive tab)
+                if (!dims || isNaN(dims.cols) || isNaN(dims.rows)) return;
+                let {cols, rows} = dims;
 
                 // Apply custom fixes based on screen ratio, see #302
                 let w = screen.width;
@@ -278,11 +318,11 @@ class Terminal {
             };
 
             this.write = cmd => {
-                this.socket.send(cmd);
+                this.Ipc.send(this.channel, "Data", cmd);
             };
 
             this.writelr = cmd => {
-                this.socket.send(cmd+"\r");
+                this.Ipc.send(this.channel, "Data", cmd+"\r");
             };
 
             this.clipboard = {
@@ -293,31 +333,80 @@ class Terminal {
                     this.clipboard.didCopy = true;
                 },
                 paste: () => {
-                    this.write(remote.clipboard.readText());
+                    this.Ipc.invoke("clipboard-read").then(text => {
+                        this.write(text);
+                    });
                     this.clipboard.didCopy = false;
                 },
                 didCopy: false
             };
 
+            this.fit();
+
         } else if (opts.role === "server") {
 
             this.Pty = require("node-pty");
-            this.Websocket = require("ws").Server;
             this.Ipc = require("electron").ipcMain;
 
             this.renderer = null;
-            this.port = opts.port || 3000;
+            this.id = opts.id || 0;
+            this.channel = "terminal_channel-"+this.id;
+            // Only accept IPC messages from webContents this callback approves (our UI window).
+            this._isTrustedSender = opts.isTrustedSender || (() => false);
 
             this._closed = false;
             this.onclosed = () => {};
             this.onopened = () => {};
-            this.onresize = () => {};
-            this.ondisconnected = () => {};
+            this.onresized = () => {};
+
+            // pty output produced before the renderer attaches (e.g. the first shell prompt) is kept here
+            this._pendingOutput = [];
+            this._pendingOutputSize = 0;
+            this._maxPendingOutput = 1024 * 1024;
+
+            this._send = (...args) => {
+                if (!this.renderer || this.renderer.isDestroyed()) return false;
+                try {
+                    this.renderer.send(this.channel, ...args);
+                    return true;
+                } catch(e) {
+                    // renderer closed
+                    return false;
+                }
+            };
 
             this._disableCWDtracking = false;
+            this._disableProcessTracking = false;
+
+            // Windows can't report another process's cwd, so for known shells we make the prompt report it
+            // instead (see the OSC handlers in the client). Only when the user hasn't set custom shell args.
+            let shellArgs = (opts.params.length > 0 ? opts.params : (process.platform === "win32" ? [] : ["--login"]));
+            let shellEnv = Object.assign({}, opts.env || process.env);
+            this._cwdFromShell = false;
+            if (process.platform === "win32" && opts.params.length === 0) {
+                let shellName = require("path").basename(opts.shell || "").toLowerCase();
+                if (shellName === "powershell.exe" || shellName === "pwsh.exe") {
+                    // Wrap whatever prompt the profile defined, prefixing it with OSC 9;9;"<cwd>"
+                    let script = [
+                        '$global:__edexPrompt = $function:prompt',
+                        'function global:prompt {',
+                        '  $loc = $executionContext.SessionState.Path.CurrentLocation',
+                        '  $osc = ""',
+                        '  if ($loc.Provider.Name -eq "FileSystem") { $osc = "$([char]27)]9;9;`"$($loc.ProviderPath)`"$([char]27)\\" }',
+                        '  $osc + (& $global:__edexPrompt)',
+                        '}'
+                    ].join("\n");
+                    shellArgs = ["-NoExit", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")];
+                    this._cwdFromShell = true;
+                } else if (shellName === "cmd.exe" && !shellEnv.PROMPT) {
+                    shellEnv.PROMPT = "$e]9;9;$P$e\\$P$G";
+                    this._cwdFromShell = true;
+                }
+            }
+            if (this._cwdFromShell) this._disableCWDtracking = true;
             this._getTtyCWD = tty => {
                 return new Promise((resolve, reject) => {
-                    let pid = tty._pid;
+                    let pid = tty.pid;
                     switch(require("os").type()) {
                         case "Linux":
                             require("fs").readlink(`/proc/${pid}/cwd`, (e, cwd) => {
@@ -344,7 +433,7 @@ class Terminal {
             };
             this._getTtyProcess = tty => {
                 return new Promise((resolve, reject) => {
-                    let pid = tty._pid;
+                    let pid = tty.pid;
                     switch(require("os").type()) {
                         case "Linux":
                         case "Darwin":
@@ -369,83 +458,95 @@ class Terminal {
                     this._getTtyCWD(this.tty).then(cwd => {
                         if (this.tty._cwd === cwd) return;
                         this.tty._cwd = cwd;
-                        if (this.renderer) {
-                            this.renderer.send("terminal_channel-"+this.port, "New cwd", cwd);
-                        }
+                        this._send("New cwd", cwd);
                     }).catch(e => {
                         if (!this._closed) {
                             console.log("Error while tracking TTY working directory: ", e);
                             this._disableCWDtracking = true;
-                            try {
-                                this.renderer.send("terminal_channel-"+this.port, "Fallback cwd", opts.cwd || process.env.PWD);
-                            } catch(e) {
-                                // renderer closed
-                            }
+                            this._send("Fallback cwd", opts.cwd || process.env.PWD);
                         }
                     });
                 }
 
-                if (this.renderer && this._nextTickUpdateProcess) {
+                if (this.renderer && this._nextTickUpdateProcess && !this._disableProcessTracking) {
                     this._nextTickUpdateProcess = false;
                     this._getTtyProcess(this.tty).then(process => {
                         if (this.tty._process === process) return;
                         this.tty._process = process;
-                        if (this.renderer) {
-                            this.renderer.send("terminal_channel-"+this.port, "New process", process);
-                        }
+                        this._send("New process", process);
                     }).catch(e => {
                         if (!this._closed) {
                             console.log("Error while retrieving TTY subprocess: ", e);
-                            try {
-                                this.renderer.send("terminal_channel-"+this.port, "New process", "");
-                            } catch(e) {
-                                // renderer closed
-                            }
+                            // Not going to start working on the next tick: stop polling (and logging)
+                            if (e === "Unsupported OS") this._disableProcessTracking = true;
+                            this._send("New process", "");
                         }
                     });
                 }
             }, 1000);
 
-            this.tty = this.Pty.spawn(opts.shell || "bash", (opts.params.length > 0 ? opts.params : (process.platform === "win32" ? [] : ["--login"])), {
-                name: opts.env.TERM || "xterm-256color",
+            this.tty = this.Pty.spawn(opts.shell || "bash", shellArgs, {
+                name: shellEnv.TERM || "xterm-256color",
                 cols: 80,
                 rows: 24,
                 cwd: opts.cwd || process.env.PWD,
-                env: opts.env || process.env
+                env: shellEnv
             });
 
-            this.tty.onExit((code, signal) => {
+            this.tty.onExit(({exitCode, signal}) => {
                 this._closed = true;
-                this.onclosed(code, signal);
+                clearInterval(this._tick);
+                this.Ipc.removeListener(this.channel, this._ipcListener);
+                this._send("Exit", exitCode, signal);
+                this.onclosed(exitCode, signal);
             });
 
-            this.wss = new this.Websocket({
-                port: this.port,
-                clientTracking: true,
-                verifyClient: info => {
-                    if (this.wss.clients.length >= 1) {
-                        return false;
-                    } else {
-                        return true;
-                    }
+            this.tty.onData(data => {
+                this._nextTickUpdateTtyCWD = true;
+                this._nextTickUpdateProcess = true;
+                if (!this._send("Data", data) && this._pendingOutputSize < this._maxPendingOutput) {
+                    this._pendingOutput.push(data);
+                    this._pendingOutputSize += data.length;
                 }
             });
-            this.Ipc.on("terminal_channel-"+this.port, (e, ...args) => {
+
+            this._ipcListener = (e, ...args) => {
+                if (!this._isTrustedSender(e.sender)) {
+                    console.warn(`Rejected message on ${this.channel} from untrusted sender`);
+                    return;
+                }
                 switch(args[0]) {
+                    case "Data":
+                        if (typeof args[1] === "string") this.tty.write(args[1]);
+                        break;
+                    case "Cwd":
+                        // Reported by the shell's prompt (shell integration); used to start new tabs in the same place
+                        if (this._cwdFromShell && typeof args[1] === "string") this.tty._cwd = args[1];
+                        break;
+                    case "Binary":
+                        if (typeof args[1] === "string") this.tty.write(Buffer.from(args[1], "binary"));
+                        break;
                     case "Renderer startup":
                         this.renderer = e.sender;
-                        if (!this._disableCWDtracking && this.tty._cwd) {
-                            this.renderer.send("terminal_channel-"+this.port, "New cwd", this.tty._cwd);
+                        if (this._pendingOutput.length > 0) {
+                            this._send("Data", this._pendingOutput.join(""));
+                            this._pendingOutput = [];
+                            this._pendingOutputSize = 0;
                         }
-                        if (this._disableCWDtracking) {
-                            this.renderer.send("terminal_channel-"+this.port, "Fallback cwd", opts.cwd || process.env.PWD);
+                        if ((!this._disableCWDtracking || this._cwdFromShell) && this.tty._cwd) {
+                            this._send("New cwd", this.tty._cwd);
                         }
+                        if (this._disableCWDtracking && !this._cwdFromShell) {
+                            this._send("Fallback cwd", opts.cwd || process.env.PWD);
+                        }
+                        this.onopened(this.tty.pid);
                         break;
                     case "Resize":
-                        let cols = args[1];
-                        let rows = args[2];
+                        let cols = Number(args[1]);
+                        let rows = Number(args[2]);
+                        if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) break;
                         try {
-                            this.tty.resize(Number(cols), Number(rows));
+                            this.tty.resize(cols, rows);
                         } catch (error) {
                             //Keep going, it'll work anyways.
                         }
@@ -454,29 +555,26 @@ class Terminal {
                     default:
                         return;
                 }
-            });
-            this.wss.on("connection", ws => {
-                this.onopened(this.tty._pid);
-                ws.on("close", (code, reason) => {
-                    this.ondisconnected(code, reason);
-                });
-                ws.on("message", msg => {
-                    this.tty.write(msg);
-                });
-                this.tty.onData(data => {
-                    this._nextTickUpdateTtyCWD = true;
-                    this._nextTickUpdateProcess = true;
-                    try {
-                        ws.send(data);
-                    } catch (e) {
-                        // Websocket closed
-                    }
-                });
-            });
+            };
+            this.Ipc.on(this.channel, this._ipcListener);
+
+            // Forget the current renderer (e.g. on UI reload), so output gets buffered until it reconnects
+            this.detachRenderer = () => {
+                this.renderer = null;
+            };
 
             this.close = () => {
-                this.tty.kill();
+                if (this._closed) return;
                 this._closed = true;
+                // Don't notify the frontend of the exit: a new tab may already be reusing this ID
+                this.renderer = null;
+                clearInterval(this._tick);
+                this.Ipc.removeListener(this.channel, this._ipcListener);
+                try {
+                    this.tty.kill();
+                } catch(e) {
+                    // already dead
+                }
             };
         } else {
             throw "Unknown purpose";

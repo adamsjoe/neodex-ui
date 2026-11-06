@@ -310,7 +310,7 @@ class FilesystemDisplay {
 
                 let cmdPrefix = `if (window.keyboard.container.dataset.isCtrlOn == "true") {
                                 electron.shell.openPath(fsDisp.cwd[${blockIndex}].path);
-                                electronWin.minimize();
+                                ipc.send("window-minimize");
                             } else if (window.keyboard.container.dataset.isShiftOn == "true") {
                                 window.term[window.currentTerm].write("\\""+fsDisp.cwd[${blockIndex}].path+"\\"");
                             } else {
@@ -543,7 +543,13 @@ class FilesystemDisplay {
         // ...except if we're hot-reloading, in which case this can mess up the rendering
         // See #392
         if (window.performance.navigation.type === 0) {
-            this.readFS(window.term[window.currentTerm].cwd || window.settings.cwd);
+            let startCwd = window.term[window.currentTerm].cwd || window.settings.cwd;
+            // CWD tracking unsupported (e.g. Windows): the terminal reports a "FALLBACK |-- <path>" marker
+            if (startCwd.startsWith("FALLBACK |-- ")) {
+                startCwd = startCwd.slice(13);
+                this._noTracking = true;
+            }
+            this.readFS(startCwd);
         }
 
         this.openFile = (name, path, type) => { //Might add text formatting at some point, not now though - Surge
@@ -609,25 +615,33 @@ class FilesystemDisplay {
                             if (err) {
                                 new Modal({
                                     type: "info",
-                                    title: "Failed to load file: " + block.path,
-                                    html: err
+                                    title: "Failed to load file",
+                                    message: _escapeHtml(`${block.path}: ${err.message || err}`)
                                 });
                                 console.log(err);
+                                return;
                             };
                             window.keyboard.detach();
-                            new Modal(
+                            const filePath = block.path;
+                            let editor, status;
+                            const editorModal = new Modal(
                                 {
                                     type: "custom",
                                     title: _escapeHtml(name),
-                                    html: `<textarea id="fileEdit" rows="40" cols="150" spellcheck="false">${data}</textarea><p id="fedit-status"></p>`,
+                                    html: `<textarea class="fileEdit" rows="40" cols="150" spellcheck="false"></textarea><p class="fedit-status"></p>`,
                                     buttons: [
-                                        {label:"Save to Disk",action:`window.writeFile('${block.path}')`}
+                                        {label: "Save to Disk", action: () => window.writeFile(filePath, editor.value, status)}
                                     ]
                                 }, () => {
                                     window.keyboard.attach();
                                     window.term[window.currentTerm].term.focus();
                                 }
                             );
+                            // File contents are set as a value, never parsed as HTML
+                            const modalRoot = document.getElementById("modal_"+editorModal.id);
+                            editor = modalRoot.querySelector("textarea.fileEdit");
+                            status = modalRoot.querySelector("p.fedit-status");
+                            editor.value = data;
                         });
                    break;
                 }

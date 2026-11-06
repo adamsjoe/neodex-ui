@@ -68,3 +68,12 @@ section > h3.title:first-child::after {
     bottom: -0.555vh;
     height: 0.46vh;
 }
+
+/* augmented-ui draws its borders/insets as clip-path'd pseudo-elements. Chromium doesn't always repaint
+   those clips when the element is resized (e.g. #main_shell growing during the boot animation), leaving a
+   stale, fully-filled overlay that tints the whole panel. Giving them their own compositor layer makes
+   Chromium redraw them correctly on resize. */
+[augmented-ui~="exe"]::before,
+[augmented-ui~="exe"]::after {
+    will-change: transform;
+}

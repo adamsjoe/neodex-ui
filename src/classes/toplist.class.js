@@ -6,8 +6,10 @@ class Toplist {
         this.parent = document.getElementById(parentId);
         this._element = document.createElement("div");
         this._element.setAttribute("id", "mod_toplist");
-        this._element.innerHTML = `<h1>TOP PROCESSES<i>PID | NAME | CPU | MEM</i></h1><br>
-        <table id="mod_toplist_table"></table>`;
+        this._element.innerHTML = `<h1>TOP PROCESSES</h1>
+        <table id="mod_toplist_table">
+            <thead><tr><th>PID</th><th>NAME</th><th>CPU</th><th>MEM</th></tr></thead>
+        </table>`;
         this._element.onclick = this.processList;
 
         this.parent.append(this._element);
@@ -46,11 +48,20 @@ class Toplist {
                 el.remove();
             });
             list.forEach(proc => {
+                // Process names come from the system: set as text, never parsed as HTML
                 let el = document.createElement("tr");
-                el.innerHTML = `<td>${proc.pid}</td>
-                                <td><strong>${proc.name}</strong></td>
-                                <td>${Math.round(proc.cpu*10)/10}%</td>
-                                <td>${Math.round(proc.mem*10)/10}%</td>`;
+                let cells = [proc.pid, proc.name, `${Math.round(proc.cpu*10)/10}%`, `${Math.round(proc.mem*10)/10}%`];
+                cells.forEach((value, i) => {
+                    let td = document.createElement("td");
+                    if (i === 1) {
+                        let strong = document.createElement("strong");
+                        strong.textContent = value;
+                        td.appendChild(strong);
+                    } else {
+                        td.textContent = value;
+                    }
+                    el.appendChild(td);
+                });
                 document.getElementById("mod_toplist_table").append(el);
             });
             this.currentlyUpdating = false;
@@ -178,11 +189,11 @@ class Toplist {
                     list.forEach(proc => {
                         let el = document.createElement("tr");
                         el.innerHTML = `<td class="pid">${proc.pid}</td>
-                            <td class="name">${proc.name}</td>
-                            <td class="user">${proc.user}</td>
+                            <td class="name">${window._escapeHtml(String(proc.name))}</td>
+                            <td class="user">${window._escapeHtml(String(proc.user))}</td>
                             <td class="cpu">${Math.round(proc.cpu * 10) / 10}%</td>
                             <td class="mem">${Math.round(proc.mem * 10) / 10}%</td>
-                            <td class="state">${proc.state}</td>
+                            <td class="state">${window._escapeHtml(String(proc.state))}</td>
                             <td class="started">${proc.started}</td>
                             <td class="runtime">${formatRuntime(proc.runtime)}</td>`;
                         document.getElementById("processList").append(el);

@@ -1,5 +1,5 @@
 const signale = require("signale");
-const {app, BrowserWindow, dialog, shell} = require("electron");
+const {app, BrowserWindow, dialog, shell, clipboard, globalShortcut, screen} = require("electron");
 
 process.on("uncaughtException", e => {
     signale.fatal(e);
@@ -30,19 +30,41 @@ if (!gotLock) {
 signale.time("Startup");
 
 const electron = require("electron");
-require('@electron/remote/main').initialize()
 const ipc = electron.ipcMain;
 const path = require("path");
-const url = require("url");
 const fs = require("fs");
 const which = require("which");
 const Terminal = require("./classes/terminal.class.js").Terminal;
 
-ipc.on("log", (e, type, content) => {
+var win, tty, extraTtys;
+
+// Only our own UI window may talk to the backend over IPC
+function isTrustedSender(webContents) {
+    return Boolean(win) && !win.isDestroyed() && webContents === win.webContents;
+}
+function onTrusted(channel, handler) {
+    ipc.on(channel, (e, ...args) => {
+        if (!isTrustedSender(e.sender)) {
+            signale.warn(`Rejected IPC message on "${channel}" from untrusted sender`);
+            return;
+        }
+        handler(e, ...args);
+    });
+}
+function handleTrusted(channel, handler) {
+    ipc.handle(channel, (e, ...args) => {
+        if (!isTrustedSender(e.sender)) {
+            throw new Error(`Rejected IPC call on "${channel}" from untrusted sender`);
+        }
+        return handler(e, ...args);
+    });
+}
+
+const logLevels = ["error", "fatal", "warn", "info", "note", "debug", "success", "complete", "pending", "watch", "log"];
+onTrusted("log", (e, type, content) => {
+    if (!logLevels.includes(type)) type = "log";
     signale[type](content);
 });
-
-var win, tty, extraTtys;
 const settingsFile = path.join(electron.app.getPath("userData"), "settings.json");
 const shortcutsFile = path.join(electron.app.getPath("userData"), "shortcuts.json");
 const lastWindowStateFile = path.join(electron.app.getPath("userData"), "lastWindowState.json");
@@ -52,11 +74,6 @@ const kblayoutsDir = path.join(electron.app.getPath("userData"), "keyboards");
 const innerKblayoutsDir = path.join(__dirname, "assets/kb_layouts");
 const fontsDir = path.join(electron.app.getPath("userData"), "fonts");
 const innerFontsDir = path.join(__dirname, "assets/fonts");
-
-// Unset proxy env variables to avoid connection problems on the internal websockets
-// See #222
-if (process.env.http_proxy) delete process.env.http_proxy;
-if (process.env.https_proxy) delete process.env.https_proxy;
 
 // Bypass GPU acceleration blocklist, trading a bit of stability for a great deal of performance, mostly on Linux
 app.commandLine.appendSwitch("ignore-gpu-blocklist");
@@ -84,7 +101,6 @@ if (!fs.existsSync(settingsFile)) {
         disableFeedbackAudio: false,
         clockHours: 24,
         pingAddr: "1.1.1.1",
-        port: 3000,
         nointro: false,
         nocursor: false,
         forceFullscreen: true,
@@ -92,7 +108,7 @@ if (!fs.existsSync(settingsFile)) {
         excludeThreadsFromToplist: true,
         hideDotfiles: false,
         fsListView: false,
-        experimentalGlobeFeatures: false,
+        experimentalGlobeFeatures: true,
         experimentalFeatures: false
     }, "", 4));
     signale.info(`Default settings written to ${settingsFile}`);
@@ -176,7 +192,6 @@ function createWindow(settings) {
         display = electron.screen.getPrimaryDisplay();
     }
     let {x, y, width, height} = display.bounds;
-    width++; height++;
     win = new BrowserWindow({
         title: "eDEX-UI",
         x,
@@ -189,10 +204,14 @@ function createWindow(settings) {
         fullscreen: settings.forceFullscreen || false,
         autoHideMenuBar: true,
         frame: settings.allowWindowed || false,
+        // Windows: a frameless resizable window otherwise keeps invisible resize borders, which made the
+        // fullscreen viewport larger than the display (e.g. 2576x1608 on 2560x1600) and broke the ratio CSS
+        thickFrame: settings.allowWindowed || false,
         backgroundColor: '#000000',
         webPreferences: {
             devTools: true,
-	    enableRemoteModule: true,
+            // TODO: enable contextIsolation + sandbox once the renderer stops using Node APIs directly
+            sandbox: false,
             contextIsolation: false,
             backgroundThrottling: false,
             webSecurity: true,
@@ -203,11 +222,7 @@ function createWindow(settings) {
         }
     });
 
-    win.loadURL(url.format({
-        pathname: path.join(__dirname, 'ui.html'),
-        protocol: 'file:',
-        slashes: true
-    }));
+    win.loadFile(path.join(__dirname, "ui.html"));
 
     signale.complete("Frontend window created!");
     win.show();
@@ -217,8 +232,100 @@ function createWindow(settings) {
         win.setFullScreen(false);
     }
 
+    // On UI reload, keep the main shell alive (buffering its output) but drop the extra tabs, whose
+    // frontends are gone. Same behaviour as the old WebSocket disconnect handling.
+    win.webContents.on("did-start-loading", () => {
+        if (tty) tty.detachRenderer();
+        closeExtraTtys();
+    });
+
+    // See #413 - keep a 16:9 geometry in windowed mode
+    let resizeTimeout = null;
+    win.on("resize", () => {
+        if (keepGeometry === false) return;
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            if (win.isDestroyed() || win.isFullScreen()) return;
+            if (win.isMaximized()) {
+                win.unmaximize();
+                win.setFullScreen(true);
+                return;
+            }
+            let size = win.getSize();
+            let base = Math.max(size[0], size[1]);
+            win.setSize(base, parseInt(base * 9 / 16));
+        }, 100);
+    });
+    win.on("leave-full-screen", () => {
+        win.setSize(960, 540);
+    });
+
     signale.watch("Waiting for frontend connection...");
 }
+
+function closeExtraTtys() {
+    if (!extraTtys) return;
+    Object.keys(extraTtys).forEach(key => {
+        if (extraTtys[key] !== null && typeof extraTtys[key].close === "function") {
+            extraTtys[key].onclosed = () => {};
+            extraTtys[key].close();
+        }
+        extraTtys[key] = null;
+    });
+}
+
+let keepGeometry = true;
+
+// Replacements for the @electron/remote calls previously made from the renderer
+ipc.on("app-info", e => {
+    // Synchronous, needed before the renderer can load its config. Read-only, non-sensitive info.
+    e.returnValue = isTrustedSender(e.sender) ? {
+        version: app.getVersion(),
+        userData: app.getPath("userData"),
+        argv: process.argv
+    } : null;
+});
+onTrusted("app-focus", () => app.focus());
+onTrusted("app-quit", () => app.quit());
+onTrusted("app-relaunch", () => {
+    app.relaunch();
+    app.quit();
+});
+onTrusted("toggle-devtools", () => win.webContents.toggleDevTools());
+onTrusted("window-minimize", () => win.minimize());
+onTrusted("window-set-keep-geometry", (e, value) => {
+    keepGeometry = (value !== false);
+});
+handleTrusted("window-toggle-fullscreen", () => {
+    let useFullscreen = !win.isFullScreen();
+    win.setFullScreen(useFullscreen);
+    return useFullscreen;
+});
+handleTrusted("display-count", () => screen.getAllDisplays().length);
+handleTrusted("clipboard-read", () => clipboard.readText());
+handleTrusted("open-config-file", (e, which) => {
+    const files = {settings: settingsFile, shortcuts: shortcutsFile};
+    if (!files[which]) throw new Error("Unknown config file");
+    win.minimize();
+    return shell.openPath(files[which]);
+});
+
+// Global shortcuts: the renderer sends the list of accelerators, we notify it by index when one fires
+onTrusted("shortcuts-register", (e, triggers) => {
+    globalShortcut.unregisterAll();
+    if (!Array.isArray(triggers)) return;
+    triggers.forEach((trigger, index) => {
+        if (typeof trigger !== "string") return;
+        try {
+            globalShortcut.register(trigger, () => {
+                if (win && !win.isDestroyed()) win.webContents.send("shortcut-triggered", index);
+            });
+        } catch(err) {
+            signale.warn(`Could not register shortcut ${trigger}: ${err.message}`);
+        }
+    });
+});
+onTrusted("shortcuts-unregister", () => globalShortcut.unregisterAll());
 
 app.on('ready', async () => {
     signale.pending(`Loading settings file...`);
@@ -240,18 +347,18 @@ app.on('ready', async () => {
         TERM_PROGRAM_VERSION: app.getVersion()
     }, settings.env);
 
-    signale.pending(`Creating new terminal process on port ${settings.port || '3000'}`);
+    signale.pending(`Creating new terminal process`);
     tty = new Terminal({
         role: "server",
+        id: 0,
         shell: settings.shell,
         params: settings.shellArgs || '',
         cwd: settings.cwd,
         env: cleanEnv,
-        port: settings.port || 3000
+        isTrustedSender
     });
     signale.success(`Terminal back-end initialized!`);
     tty.onclosed = (code, signal) => {
-        tty.ondisconnected = () => {};
         signale.complete("Terminal exited", code, signal);
         app.quit();
     };
@@ -262,95 +369,73 @@ app.on('ready', async () => {
     tty.onresized = (cols, rows) => {
         signale.info("Resized TTY to ", cols, rows);
     };
-    tty.ondisconnected = () => {
-        signale.error("Lost connection to frontend");
-        signale.watch("Waiting for frontend connection...");
-    };
 
     // Support for multithreaded systeminformation calls
-    signale.pending("Starting multithreaded calls controller...");
-    require("./_multithread.js");
+    signale.pending("Starting systeminformation backend...");
+    require("./_multithread.js")(ipc, isTrustedSender);
 
     createWindow(settings);
 
-    // Support for more terminals, used for creating tabs (currently limited to 4 extra terms)
+    // Support for more terminals, used for creating tabs (currently limited to 4 extra terms, IDs 1-4)
     extraTtys = {};
-    let basePort = settings.port || 3000;
-    basePort = Number(basePort) + 2;
-
-    for (let i = 0; i < 4; i++) {
-        extraTtys[basePort+i] = null;
+    for (let i = 1; i <= 4; i++) {
+        extraTtys[i] = null;
     }
 
-    ipc.on("ttyspawn", (e, arg) => {
-        let port = null;
-        Object.keys(extraTtys).forEach(key => {
-            if (extraTtys[key] === null && port === null) {
-                extraTtys[key] = {};
-                port = key;
-            }
-        });
+    onTrusted("ttyspawn", (e, arg) => {
+        let id = Object.keys(extraTtys).find(key => extraTtys[key] === null);
 
-        if (port === null) {
+        if (typeof id === "undefined") {
             signale.error("TTY spawn denied (Reason: exceeded max TTYs number)");
             e.sender.send("ttyspawn-reply", "ERROR: max number of ttys reached");
-        } else {
-            signale.pending(`Creating new TTY process on port ${port}`);
-            let term = new Terminal({
-                role: "server",
-                shell: settings.shell,
-                params: settings.shellArgs || '',
-                cwd: tty.tty._cwd || settings.cwd,
-                env: cleanEnv,
-                port: port
-            });
-            signale.success(`New terminal back-end initialized at ${port}`);
-            term.onclosed = (code, signal) => {
-                term.ondisconnected = () => {};
-                term.wss.close();
-                signale.complete(`TTY exited at ${port}`, code, signal);
-                extraTtys[term.port] = null;
-                term = null;
-            };
-            term.onopened = pid => {
-                signale.success(`TTY ${port} connected to frontend (process PID ${pid})`);
-            };
-            term.onresized = () => {};
-            term.ondisconnected = () => {
-                term.onclosed = () => {};
-                term.close();
-                term.wss.close();
-                extraTtys[term.port] = null;
-                term = null;
-            };
-
-            extraTtys[port] = term;
-            e.sender.send("ttyspawn-reply", "SUCCESS: "+port);
+            return;
         }
+
+        signale.pending(`Creating new TTY process #${id}`);
+        let term = new Terminal({
+            role: "server",
+            id: Number(id),
+            shell: settings.shell,
+            params: settings.shellArgs || '',
+            cwd: tty.tty._cwd || settings.cwd,
+            env: cleanEnv,
+            isTrustedSender
+        });
+        signale.success(`New terminal back-end initialized as #${id}`);
+        term.onclosed = (code, signal) => {
+            signale.complete(`TTY #${id} exited`, code, signal);
+            extraTtys[id] = null;
+        };
+        term.onopened = pid => {
+            signale.success(`TTY #${id} connected to frontend (process PID ${pid})`);
+        };
+
+        extraTtys[id] = term;
+        e.sender.send("ttyspawn-reply", "SUCCESS: "+id);
     });
 
     // Backend support for theme and keyboard hotswitch
     let themeOverride = null;
     let kbOverride = null;
-    ipc.on("getThemeOverride", (e, arg) => {
+    onTrusted("getThemeOverride", (e, arg) => {
         e.sender.send("getThemeOverride", themeOverride);
     });
-    ipc.on("getKbOverride", (e, arg) => {
+    onTrusted("getKbOverride", (e, arg) => {
         e.sender.send("getKbOverride", kbOverride);
     });
-    ipc.on("setThemeOverride", (e, arg) => {
+    onTrusted("setThemeOverride", (e, arg) => {
         themeOverride = arg;
     });
-    ipc.on("setKbOverride", (e, arg) => {
+    onTrusted("setKbOverride", (e, arg) => {
         kbOverride = arg;
     });
 });
 
 app.on('web-contents-created', (e, contents) => {
-    // Prevent creating more than one window
-    contents.on('new-window', (e, url) => {
-        e.preventDefault();
-        shell.openExternal(url);
+    // Prevent creating more than one window; only hand http(s) links to the system browser
+    contents.setWindowOpenHandler(({url}) => {
+        if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+        return {action: "deny"};
     });
 
     // Prevent loading something else than the UI
@@ -365,11 +450,11 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-    tty.close();
-    Object.keys(extraTtys).forEach(key => {
-        if (extraTtys[key] !== null) {
-            extraTtys[key].close();
-        }
-    });
+    globalShortcut.unregisterAll();
+    if (tty) {
+        tty.onclosed = () => {};
+        tty.close();
+    }
+    closeExtraTtys();
     signale.complete("Shutting down...");
 });

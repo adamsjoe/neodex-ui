@@ -162,7 +162,9 @@ div.keyboard_row#row_1 > div.keyboard_enter {
 div.keyboard_row#row_2 > div.keyboard_enter {
     border: 0.19vh solid rgba(var(--color_r), var(--color_g), var(--color_b), 0.5);
     border-top-left-radius: 0vh;
-    border-top: 0.3vh solid var(--color_light_black);
+    border-top-right-radius: 0vh;
+    border-top: none;
+    padding-top: 0.3vh; /* keeps the old height now the top border is gone */
     width: 7.78vh;
     min-width: 7.78vh;
     margin-top: 0vh;
@@ -171,8 +173,21 @@ div.keyboard_row#row_2 > div.keyboard_enter {
     right: -1vh;
 }
 
-div.keyboard_row#row_2 > div.keyboard_enter:active, div.keyboard_row#row_2 > div.keyboard_enter.active {
-    border-top: 0.3vh solid rgb(var(--color_r), var(--color_g), var(--color_b));
+/* The two ENTER halves form one L-shaped key: this strip hides the upper half's bottom border where
+   the halves join. It's a separate element (not a border) so its corners don't mitre into the side borders. */
+div.keyboard_row#row_2 > div.keyboard_enter::before {
+    content: "";
+    position: absolute;
+    /* Slightly larger than the 0.19vh border it hides, so anti-aliased edges don't leave a hairline */
+    top: -0.06vh;
+    left: 0;
+    right: 0;
+    height: 0.36vh;
+    background: var(--color_light_black);
+}
+
+div.keyboard_row#row_2 > div.keyboard_enter:active::before, div.keyboard_row#row_2 > div.keyboard_enter.active::before {
+    background: rgb(var(--color_r), var(--color_g), var(--color_b));
 }
 
 div.keyboard_key#keyboard_spacebar {

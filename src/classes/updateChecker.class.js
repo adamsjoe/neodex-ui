@@ -2,8 +2,7 @@ class UpdateChecker {
     constructor() {
         let https = require("https");
         let electron = require("electron");
-        let remote = require("@electron/remote");
-        let current = remote.app.getVersion();
+        let current = window._appInfo.version;
 
         this._failed = false;
         this._willfail = false;
@@ -51,11 +50,19 @@ class UpdateChecker {
                         } else if (Number(release.tag_name.slice(1).replace(/\./g, "")) < Number(current.replace("-pre", "").replace(/\./g, ""))) {
                             electron.ipcRenderer.send("log", "info", "UpdateChecker: Running an unreleased, development version.");
                         } else {
-                            new Modal({
+                            let releaseUrl = (typeof release.html_url === "string" && release.html_url.startsWith("https://github.com/")) ? release.html_url : null;
+                            let modal = new Modal({
                                 type: "info",
                                 title: "New version available",
-                                message: `eDEX-UI <strong>${release.tag_name}</strong> is now available.<br/>Head over to <a href="#" onclick="require('electron').shell.openExternal('${release.html_url}')">github.com</a> to download the latest version.`
+                                message: `eDEX-UI <strong>${window._escapeHtml(String(release.tag_name))}</strong> is now available.<br/>Head over to <a href="#" class="update-link">github.com</a> to download the latest version.`
                             });
+                            let link = document.querySelector(`#modal_${modal.id} a.update-link`);
+                            if (link && releaseUrl) {
+                                link.addEventListener("click", e => {
+                                    e.preventDefault();
+                                    electron.shell.openExternal(releaseUrl);
+                                });
+                            }
                             electron.ipcRenderer.send("log", "info", `UpdateChecker: New version ${release.tag_name} available.`);
                         }
                     } catch(e) {

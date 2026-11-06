@@ -1,5 +1,5 @@
 /* Support for other screen ratios than 16:9 */
-@media (aspect-ratio: 16/10) {
+@media (min-aspect-ratio: 155/100) and (max-aspect-ratio: 165/100) { /* ~16:10 */
     section#filesystem > h3.title {
         width: 43.5vw;
     }
@@ -23,15 +23,23 @@
         min-width: 45vh;
     }
     div.keyboard_row#row_2 > div.keyboard_enter {
-        top: -0.9vh;
-        right: -0.9vh;
+        top: -0.787vh;
+        right: -0.97vh;
+    }
+
+    /* The base sizes overflow the narrower 16:10 column into the terminal */
+    div#mod_sysinfo h1 {
+        font-size: 1.9vh;
+    }
+    div#mod_sysinfo h2 {
+        font-size: 1.45vh;
     }
 
     /* See #317 */
     section.mod_column {
         width: 17.5%;
     }
-    div#mod_toplist i {
+    table#mod_toplist_table th {
         font-size: 1.10vh;
     }
     table#mod_toplist_table {
@@ -50,7 +58,7 @@
     }
 }
 
-@media (aspect-ratio: 64/27) { /* Commercial name of 64/27 ratio is 21:9 */
+@media (min-aspect-ratio: 230/100) and (max-aspect-ratio: 245/100) { /* Commercial name of 64/27 ratio is 21:9 */
     div.keyboard_row#row_1 > div.keyboard_enter {
         height: 2.1vw;
         margin-top: 0.2vh;
@@ -86,7 +94,7 @@
     }
 }
 
-@media (aspect-ratio: 5/4), (aspect-ratio: 4/3) {
+@media (min-aspect-ratio: 120/100) and (max-aspect-ratio: 140/100) { /* 5:4 and 4:3 */
     section#filesystem {
         display: none;
     }
@@ -139,8 +147,8 @@
         font-size: 0.8vh;
     }
 
-    div#mod_toplist i {
-        opacity: 0;
+    table#mod_toplist_table th {
+        font-size: 1vh;
     }
     table#mod_toplist_table td {
         font-size: 1.1vh;

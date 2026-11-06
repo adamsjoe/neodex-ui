@@ -1,12 +1,14 @@
 class DocReader {
     constructor(opts) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = './node_modules/pdfjs-dist/build/pdf.worker.js';
         const modalElementId = "modal_" + opts.modalId;
         const path = opts.path;
         const scale = 1;
         const canvas = document.getElementById(modalElementId).querySelector(".pdf_canvas");
-        const context = canvas.getContext('2d');
-        const loadingTask = pdfjsLib.getDocument(path);
+        // Read the file ourselves: pdf.js would otherwise try to fetch() a raw filesystem path
+        const loadingTask = window.pdfjsLib.getDocument({
+            data: new Uint8Array(require("fs").readFileSync(path)),
+            isEvalSupported: false
+        });
         let pdfDoc = null,
             pageNum = 1,
             pageRendering = false,
@@ -15,25 +17,22 @@ class DocReader {
 
         this.renderPage = (num) => {
             pageRendering = true;
-            loadingTask.promise.then(function (pdf) {
-                pdfDoc.getPage(num).then(function (page) {
-                    const viewport = page.getViewport({ scale: scale });
-                    canvas.height = viewport.height;
-                    canvas.width = viewport.width;
+            pdfDoc.getPage(num).then(page => {
+                const viewport = page.getViewport({ scale: scale });
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
 
-                    const renderContext = {
-                        canvasContext: context,
-                        viewport: viewport,
-                    };
-                    const renderTask = page.render(renderContext);
-                    renderTask.promise.then(function () {
-                        pageRendering = false;
-                        if (pageNumPending !== null) {
-                            renderPage(pageNumPending);
-                            pageNumPending = null;
-                        }
-                    });
-                });
+                return page.render({ canvas, viewport }).promise;
+            }).then(() => {
+                pageRendering = false;
+                if (pageNumPending !== null) {
+                    const next = pageNumPending;
+                    pageNumPending = null;
+                    this.renderPage(next);
+                }
+            }).catch(e => {
+                pageRendering = false;
+                console.error("PDF render failed", e);
             });
             document.getElementById(modalElementId).querySelector(".page_num").textContent = num;
         }
@@ -83,10 +82,13 @@ class DocReader {
         document.getElementById(modalElementId).querySelector(".zoom_in").addEventListener('click', this.zoomIn);
         document.getElementById(modalElementId).querySelector(".zoom_out").addEventListener('click', this.zoomOut);
 
-        pdfjsLib.getDocument(path).promise.then((pdfDoc_) => {
+        loadingTask.promise.then((pdfDoc_) => {
             pdfDoc = pdfDoc_;
             document.getElementById(modalElementId).querySelector(".page_count").textContent = pdfDoc.numPages;
             this.renderPage(pageNum);
+        }).catch(e => {
+            document.getElementById(modalElementId).querySelector(".page_count").textContent = "ERROR";
+            console.error("Could not open PDF", e);
         });
     }
 }

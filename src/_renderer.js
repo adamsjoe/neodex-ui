@@ -37,10 +37,13 @@ window.onerror = (msg, path, line, col, error) => {
 const path = require("path");
 const fs = require("fs");
 const electron = require("electron");
-const remote = require("@electron/remote");
 const ipc = electron.ipcRenderer;
 
-const settingsDir = remote.app.getPath("userData");
+// Static app info from the main process (replaces @electron/remote)
+window._appInfo = ipc.sendSync("app-info");
+if (!window._appInfo) throw new Error("Could not retrieve app info from main process");
+
+const settingsDir = window._appInfo.userData;
 const themesDir = path.join(settingsDir, "themes");
 const keyboardsDir = path.join(settingsDir, "keyboards");
 const fontsDir = path.join(settingsDir, "fonts");
@@ -54,12 +57,12 @@ window.shortcuts = require(shortcutsFile);
 window.lastWindowState = require(lastWindowStateFile);
 
 // Load CLI parameters
-if (remote.process.argv.includes("--nointro")) {
+if (window._appInfo.argv.includes("--nointro")) {
     window.settings.nointroOverride = true;
 } else {
     window.settings.nointroOverride = false;
 }
-if (electron.remote.process.argv.includes("--nocursor")) {
+if (window._appInfo.argv.includes("--nocursor")) {
     window.settings.nocursorOverride = true;
 } else {
     window.settings.nocursorOverride = false;
@@ -193,7 +196,8 @@ function initSystemInformationProxy() {
                         }
                         resolve(res);
                     });
-                    ipc.send("systeminformation-call", prop, id, ...args);
+                    // Functions can't cross IPC: callbacks are invoked locally above
+                    ipc.send("systeminformation-call", prop, id, ...(callback ? args.slice(0, -1) : args));
                 });
             };
         }
@@ -204,7 +208,7 @@ function initSystemInformationProxy() {
 window.audioManager = new AudioManager();
 
 // See #223
-electron.remote.app.focus();
+ipc.send("app-focus");
 
 let i = 0;
 if (window.settings.nointro || window.settings.nointroOverride) {
@@ -243,7 +247,7 @@ function displayLine() {
 
     switch(true) {
         case i === 2:
-            bootScreen.innerHTML += `eDEX-UI Kernel version ${electron.remote.app.getVersion()} boot at ${Date().toString()}; root:xnu-1699.22.73~1/RELEASE_X86_64`;
+            bootScreen.innerHTML += `eDEX-UI Kernel version ${window._appInfo.version} boot at ${Date().toString()}; root:xnu-1699.22.73~1/RELEASE_X86_64`;
         case i === 4:
             setTimeout(displayLine, 500);
             break;
@@ -476,18 +480,18 @@ async function initUI() {
         0: new Terminal({
             role: "client",
             parentId: "terminal0",
-            port: window.settings.port || 3000
+            id: 0
         })
     };
     window.currentTerm = 0;
     window.term[0].onprocesschange = p => {
-        document.getElementById("shell_tab0").innerHTML = `<p>MAIN - ${p}</p>`;
+        setTabLabel(0, p ? `MAIN - ${p}` : "MAIN SHELL");
     };
     // Prevent losing hardware keyboard focus on the terminal when using touch keyboard
     window.onmouseup = e => {
         if (window.keyboard.linkedToTerm) window.term[window.currentTerm].term.focus();
     };
-    window.term[0].term.writeln("\033[1m"+`Welcome to eDEX-UI v${electron.remote.app.getVersion()} - Electron v${process.versions.electron}`+"\033[0m");
+    window.term[0].term.writeln("\033[1m"+`Welcome to eDEX-UI v${window._appInfo.version} - Electron v${process.versions.electron}`+"\033[0m");
 
     await _delay(100);
 
@@ -525,6 +529,14 @@ window.remakeKeyboard = layout => {
     ipc.send("setKbOverride", layout);
 };
 
+// Process names come from the system: always set them as text, never as HTML
+function setTabLabel(number, label) {
+    let tab = document.getElementById("shell_tab"+number);
+    let p = document.createElement("p");
+    p.textContent = label;
+    tab.replaceChildren(p);
+}
+
 window.focusShellTab = number => {
     window.audioManager.folder.play();
 
@@ -549,23 +561,23 @@ window.focusShellTab = number => {
     } else if (number > 0 && number <= 4 && window.term[number] !== null && typeof window.term[number] !== "object") {
         window.term[number] = null;
 
-        document.getElementById("shell_tab"+number).innerHTML = "<p>LOADING...</p>";
+        setTabLabel(number, "LOADING...");
         ipc.send("ttyspawn", "true");
         ipc.once("ttyspawn-reply", (e, r) => {
             if (r.startsWith("ERROR")) {
-                document.getElementById("shell_tab"+number).innerHTML = "<p>ERROR</p>";
+                setTabLabel(number, "ERROR");
             } else if (r.startsWith("SUCCESS")) {
-                let port = Number(r.substr(9));
+                let id = Number(r.substr(9));
 
                 window.term[number] = new Terminal({
                     role: "client",
                     parentId: "terminal"+number,
-                    port
+                    id
                 });
 
                 window.term[number].onclose = e => {
                     delete window.term[number].onprocesschange;
-                    document.getElementById("shell_tab"+number).innerHTML = "<p>EMPTY</p>";
+                    setTabLabel(number, "EMPTY");
                     document.getElementById("terminal"+number).innerHTML = "";
                     window.term[number].term.dispose();
                     delete window.term[number];
@@ -573,10 +585,10 @@ window.focusShellTab = number => {
                 };
 
                 window.term[number].onprocesschange = p => {
-                    document.getElementById("shell_tab"+number).innerHTML = `<p>#${number+1} - ${p}</p>`;
+                    setTabLabel(number, p ? `#${number+1} - ${p}` : `#${number+1}`);
                 };
 
-                document.getElementById("shell_tab"+number).innerHTML = `<p>::${port}</p>`;
+                setTabLabel(number, `#${id}`);
                 setTimeout(() => {
                     window.focusShellTab(number);
                 }, 500);
@@ -590,25 +602,27 @@ window.openSettings = async () => {
     if (document.getElementById("settingsEditor")) return;
 
     // Build lists of available keyboards, themes, monitors
-    let keyboards, themes, monitors, ifaces;
+    const esc = v => window._escapeHtml(String((typeof v === "undefined" || v === null) ? "" : v));
+    let keyboards = "", themes = "", monitors = "", ifaces = "";
     fs.readdirSync(keyboardsDir).forEach(kb => {
         if (!kb.endsWith(".json")) return;
         kb = kb.replace(".json", "");
         if (kb === window.settings.keyboard) return;
-        keyboards += `<option>${kb}</option>`;
+        keyboards += `<option>${esc(kb)}</option>`;
     });
     fs.readdirSync(themesDir).forEach(th => {
         if (!th.endsWith(".json")) return;
         th = th.replace(".json", "");
         if (th === window.settings.theme) return;
-        themes += `<option>${th}</option>`;
+        themes += `<option>${esc(th)}</option>`;
     });
-    for (let i = 0; i < electron.remote.screen.getAllDisplays().length; i++) {
+    let displayCount = await ipc.invoke("display-count");
+    for (let i = 0; i < displayCount; i++) {
         if (i !== window.settings.monitor) monitors += `<option>${i}</option>`;
     }
     let nets = await window.si.networkInterfaces();
     nets.forEach(net => {
-        if (net.iface !== window.mods.netstat.iface) ifaces += `<option>${net.iface}</option>`;
+        if (net.iface !== window.mods.netstat.iface) ifaces += `<option>${esc(net.iface)}</option>`;
     });
 
     // Unlink the tactile keyboard from the terminal emulator to allow filling in the settings fields
@@ -616,7 +630,7 @@ window.openSettings = async () => {
 
     new Modal({
         type: "custom",
-        title: `Settings <i>(v${electron.remote.app.getVersion()})</i>`,
+        title: `Settings <i>(v${window._appInfo.version})</i>`,
         html: `<table id="settingsEditor">
                     <tr>
                         <th>Key</th>
@@ -626,33 +640,33 @@ window.openSettings = async () => {
                     <tr>
                         <td>shell</td>
                         <td>The program to run as a terminal emulator</td>
-                        <td><input type="text" id="settingsEditor-shell" value="${window.settings.shell}"></td>
+                        <td><input type="text" id="settingsEditor-shell" value="${esc(window.settings.shell)}"></td>
                     </tr>
                     <tr>
                         <td>shellArgs</td>
                         <td>Arguments to pass to the shell</td>
-                        <td><input type="text" id="settingsEditor-shellArgs" value="${window.settings.shellArgs || ''}"></td>
+                        <td><input type="text" id="settingsEditor-shellArgs" value="${esc(window.settings.shellArgs)}"></td>
                     </tr>
                     <tr>
                         <td>cwd</td>
                         <td>Working Directory to start in</td>
-                        <td><input type="text" id="settingsEditor-cwd" value="${window.settings.cwd}"></td>
+                        <td><input type="text" id="settingsEditor-cwd" value="${esc(window.settings.cwd)}"></td>
                     </tr>
                     <tr>
                         <td>env</td>
-                        <td>Custom shell environment override</td>
-                        <td><input type="text" id="settingsEditor-env" value="${window.settings.env}"></td>
+                        <td>Custom shell environment override (JSON object)</td>
+                        <td><input type="text" id="settingsEditor-env" value="${esc(window.settings.env ? JSON.stringify(window.settings.env) : "")}"></td>
                     </tr>
                     <tr>
                         <td>username</td>
                         <td>Custom username to display at boot</td>
-                        <td><input type="text" id="settingsEditor-username" value="${window.settings.username}"></td>
+                        <td><input type="text" id="settingsEditor-username" value="${esc(window.settings.username)}"></td>
                     </tr>
                     <tr>
                         <td>keyboard</td>
                         <td>On-screen keyboard layout code</td>
                         <td><select id="settingsEditor-keyboard">
-                            <option>${window.settings.keyboard}</option>
+                            <option>${esc(window.settings.keyboard)}</option>
                             ${keyboards}
                         </select></td>
                     </tr>
@@ -660,7 +674,7 @@ window.openSettings = async () => {
                         <td>theme</td>
                         <td>Name of the theme to load</td>
                         <td><select id="settingsEditor-theme">
-                            <option>${window.settings.theme}</option>
+                            <option>${esc(window.settings.theme)}</option>
                             ${themes}
                         </select></td>
                     </tr>
@@ -691,14 +705,9 @@ window.openSettings = async () => {
                         </select></td>
                     </tr>
                     <tr>
-                        <td>port</td>
-                        <td>Local port to use for UI-shell connection</td>
-                        <td><input type="number" id="settingsEditor-port" value="${window.settings.port}"></td>
-                    </tr>
-                    <tr>
                         <td>pingAddr</td>
                         <td>IPv4 address to test Internet connectivity</td>
-                        <td><input type="text" id="settingsEditor-pingAddr" value="${window.settings.pingAddr || "1.1.1.1"}"></td>
+                        <td><input type="text" id="settingsEditor-pingAddr" value="${esc(window.settings.pingAddr || "1.1.1.1")}"></td>
                     </tr>
                     <tr>
                         <td>clockHours</td>
@@ -735,7 +744,7 @@ window.openSettings = async () => {
                         <td>iface</td>
                         <td>Override the interface used for network monitoring</td>
                         <td><select id="settingsEditor-iface">
-                            <option>${window.mods.netstat.iface}</option>
+                            <option>${esc(window.mods.netstat.iface)}</option>
                             ${ifaces}
                         </select></td>
                     </tr>
@@ -799,10 +808,10 @@ window.openSettings = async () => {
                 <h6 id="settingsEditorStatus">Loaded values from memory</h6>
                 <br>`,
         buttons: [
-            {label: "Open in External Editor", action:`electron.shell.openPath('${settingsFile}');electronWin.minimize();`},
-            {label: "Save to Disk", action: "window.writeSettingsFile()"},
-            {label: "Reload UI", action: "window.location.reload(true);"},
-            {label: "Restart eDEX", action: "electron.remote.app.relaunch();electron.remote.app.quit();"}
+            {label: "Open in External Editor", action: () => ipc.invoke("open-config-file", "settings")},
+            {label: "Save to Disk", action: () => window.writeSettingsFile()},
+            {label: "Reload UI", action: () => window.location.reload(true)},
+            {label: "Restart eDEX", action: () => ipc.send("app-relaunch")}
         ]
     }, () => {
         // Link the keyboard back to the terminal
@@ -813,18 +822,31 @@ window.openSettings = async () => {
     });
 };
 
-window.writeFile = (path) => {
-    fs.writeFile(path, document.getElementById("fileEdit").value, "utf-8", () => {
-        document.getElementById("fedit-status").innerHTML = "<i>File saved.</i>";
+window.writeFile = (filePath, content, statusElement) => {
+    fs.writeFile(filePath, content, "utf-8", err => {
+        if (!statusElement) return;
+        statusElement.textContent = err ? `Could not save file: ${err.message}` : "File saved.";
     });
 };
 
 window.writeSettingsFile = () => {
+    let envInput = document.getElementById("settingsEditor-env").value.trim();
+    let env;
+    if (envInput !== "") {
+        try {
+            env = JSON.parse(envInput);
+            if (typeof env !== "object" || env === null || Array.isArray(env)) throw new Error("not an object");
+        } catch(e) {
+            document.getElementById("settingsEditorStatus").innerText = "Not saved: env must be a JSON object, e.g. {\"FOO\": \"bar\"}";
+            return;
+        }
+    }
+
     window.settings = {
         shell: document.getElementById("settingsEditor-shell").value,
         shellArgs: document.getElementById("settingsEditor-shellArgs").value,
         cwd: document.getElementById("settingsEditor-cwd").value,
-        env: document.getElementById("settingsEditor-env").value,
+        env,
         username: document.getElementById("settingsEditor-username").value,
         keyboard: document.getElementById("settingsEditor-keyboard").value,
         theme: document.getElementById("settingsEditor-theme").value,
@@ -834,7 +856,6 @@ window.writeSettingsFile = () => {
         disableFeedbackAudio: (document.getElementById("settingsEditor-disableFeedbackAudio").value === "true"),
         pingAddr: document.getElementById("settingsEditor-pingAddr").value,
         clockHours: Number(document.getElementById("settingsEditor-clockHours").value),
-        port: Number(document.getElementById("settingsEditor-port").value),
         monitor: Number(document.getElementById("settingsEditor-monitor").value),
         nointro: (document.getElementById("settingsEditor-nointro").value === "true"),
         nocursor: (document.getElementById("settingsEditor-nocursor").value === "true"),
@@ -850,7 +871,7 @@ window.writeSettingsFile = () => {
     };
 
     Object.keys(window.settings).forEach(key => {
-        if (window.settings[key] === "undefined") {
+        if (window.settings[key] === "undefined" || typeof window.settings[key] === "undefined") {
             delete window.settings[key];
         }
     });
@@ -859,9 +880,8 @@ window.writeSettingsFile = () => {
     document.getElementById("settingsEditorStatus").innerText = "New values written to settings.json file at "+new Date().toTimeString();
 };
 
-window.toggleFullScreen = () => {
-    let useFullscreen = (electronWin.isFullScreen() ? false : true);
-    electronWin.setFullScreen(useFullscreen);
+window.toggleFullScreen = async () => {
+    let useFullscreen = await ipc.invoke("window-toggle-fullscreen");
 
     //Update settings
     window.lastWindowState["useFullscreen"] = useFullscreen;
@@ -895,8 +915,8 @@ window.openShortcutsHelp = () => {
 
         appList += `<tr>
                         <td>${(cut.enabled) ? 'YES' : 'NO'}</td>
-                        <td><input disabled type="text" maxlength=25 value="${cut.trigger}"></td>
-                        <td>${shortcutsDefinition[action]}</td>
+                        <td><input disabled type="text" maxlength=25 value="${window._escapeHtml(String(cut.trigger))}"></td>
+                        <td>${shortcutsDefinition[action] || window._escapeHtml(String(action))}</td>
                     </tr>`;
     });
 
@@ -904,9 +924,9 @@ window.openShortcutsHelp = () => {
     window.shortcuts.filter(e => e.type === "shell").forEach(cut => {
         customList += `<tr>
                             <td>${(cut.enabled) ? 'YES' : 'NO'}</td>
-                            <td><input disabled type="text" maxlength=25 value="${cut.trigger}"></td>
+                            <td><input disabled type="text" maxlength=25 value="${window._escapeHtml(String(cut.trigger))}"></td>
                             <td>
-                                <input disabled type="text" placeholder="Run terminal command..." value="${cut.action}">
+                                <input disabled type="text" placeholder="Run terminal command..." value="${window._escapeHtml(String(cut.action))}">
                                 <input disabled type="checkbox" name="shortcutsHelpNew_Enter" ${(cut.linebreak) ? 'checked' : ''}>
                                 <label for="shortcutsHelpNew_Enter">Enter</label>
                             </td>
@@ -916,7 +936,7 @@ window.openShortcutsHelp = () => {
     window.keyboard.detach();
     new Modal({
         type: "custom",
-        title: `Available Keyboard Shortcuts <i>(v${electron.remote.app.getVersion()})</i>`,
+        title: `Available Keyboard Shortcuts <i>(v${window._appInfo.version})</i>`,
         html: `<h5>Using either the on-screen or a physical keyboard, you can use the following shortcuts:</h5>
                 <details open id="shortcutsHelpAccordeon1">
                     <summary>Emulator shortcuts</summary>
@@ -943,8 +963,8 @@ window.openShortcutsHelp = () => {
                 </details>
                 <br>`,
         buttons: [
-            {label: "Open Shortcuts File", action:`electron.shell.openPath('${shortcutsFile}');electronWin.minimize();`},
-            {label: "Reload UI", action: "window.location.reload(true);"},
+            {label: "Open Shortcuts File", action: () => ipc.invoke("open-config-file", "shortcuts")},
+            {label: "Reload UI", action: () => window.location.reload(true)},
         ]
     }, () => {
         window.keyboard.attach();
@@ -1032,7 +1052,7 @@ window.useAppShortcut = action => {
             window.keyboard.togglePasswordMode();
             return true;
         case "DEV_DEBUG":
-            electron.remote.getCurrentWindow().webContents.toggleDevTools();
+            ipc.send("toggle-devtools");
             return true;
         case "DEV_RELOAD":
             window.location.reload(true);
@@ -1043,28 +1063,35 @@ window.useAppShortcut = action => {
     }
 };
 
-// Global keyboard shortcuts
-const globalShortcut = electron.remote.globalShortcut;
-globalShortcut.unregisterAll();
+// Global keyboard shortcuts - registered in the main process, which notifies us by index
+let globalShortcutHandlers = [];
+ipc.on("shortcut-triggered", (e, index) => {
+    if (typeof globalShortcutHandlers[index] === "function") globalShortcutHandlers[index]();
+});
 
 window.registerKeyboardShortcuts = () => {
+    let triggers = [];
+    globalShortcutHandlers = [];
+    let add = (trigger, handler) => {
+        triggers.push(trigger);
+        globalShortcutHandlers.push(handler);
+    };
+
     window.shortcuts.forEach(cut => {
         if (!cut.enabled) return;
 
         if (cut.type === "app") {
             if (cut.action === "TAB_X") {
                 for (let i = 1; i <= 5; i++) {
-                    let trigger = cut.trigger.replace("X", i);
-                    let dfn = () => { window.useAppShortcut(`TAB_${i}`) };
-                    globalShortcut.register(trigger, dfn);
+                    add(cut.trigger.replace("X", i), () => { window.useAppShortcut(`TAB_${i}`) });
                 }
             } else {
-                globalShortcut.register(cut.trigger, () => {
+                add(cut.trigger, () => {
                     window.useAppShortcut(cut.action);
                 });
             }
         } else if (cut.type === "shell") {
-            globalShortcut.register(cut.trigger, () => {
+            add(cut.trigger, () => {
                 let fn = (cut.linebreak) ? "writelr" : "write";
                 window.term[window.currentTerm][fn](cut.action);
             });
@@ -1072,6 +1099,8 @@ window.registerKeyboardShortcuts = () => {
             console.warn(`${cut.trigger} has unknown type`);
         }
     });
+
+    ipc.send("shortcuts-register", triggers);
 };
 window.registerKeyboardShortcuts();
 
@@ -1081,7 +1110,7 @@ window.addEventListener("focus", () => {
 });
 
 window.addEventListener("blur", () => {
-    globalShortcut.unregisterAll();
+    ipc.send("shortcuts-unregister");
 });
 
 // Prevent showing menu, exiting fullscreen or app with keyboard shortcuts
@@ -1106,7 +1135,7 @@ document.addEventListener("keydown", e => {
 // Fix #265
 window.addEventListener("keyup", e => {
     if (require("os").platform() === "win32" && e.key === "F4" && e.altKey === true) {
-        electron.remote.app.quit();
+        ipc.send("app-quit");
     }
 });
 
@@ -1122,31 +1151,5 @@ window.onresize = () => {
     }
 };
 
-// See #413
-window.resizeTimeout = null;
-let electronWin = electron.remote.getCurrentWindow();
-electronWin.on("resize", () => {
-    if (settings.keepGeometry === false) return;
-    clearTimeout(window.resizeTimeout);
-    window.resizeTimeout = setTimeout(() => {
-        let win = electron.remote.getCurrentWindow();
-        if (win.isFullScreen()) return false;
-        if (win.isMaximized()) {
-            win.unmaximize();
-            win.setFullScreen(true);
-            return false;
-        }
-
-        let size = win.getSize();
-
-        if (size[0] >= size[1]) {
-            win.setSize(size[0], parseInt(size[0] * 9 / 16));
-        } else {
-            win.setSize(size[1], parseInt(size[1] * 9 / 16));
-        }
-    }, 100);
-});
-
-electronWin.on("leave-full-screen", () => {
-    electron.remote.getCurrentWindow().setSize(960, 540);
-});
+// See #413 - geometry handling lives in the main process
+ipc.send("window-set-keep-geometry", settings.keepGeometry !== false);
