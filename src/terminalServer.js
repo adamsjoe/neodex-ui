@@ -76,22 +76,19 @@ class TerminalServer {
                 }
             });
         };
+        // Name of the terminal's foreground process (shown in the tab), read by node-pty from the pty itself
+        // on Linux and macOS. (This used `ps --no-headers --sort -g`, which macOS's ps doesn't support.)
+        // Windows has no equivalent.
         this._getTtyProcess = tty => {
             return new Promise((resolve, reject) => {
-                let pid = tty.pid;
-                switch(require("os").type()) {
-                    case "Linux":
-                    case "Darwin":
-                        require("child_process").exec(`ps -o comm --no-headers --sort=+pid -g ${pid} | tail -1`, (e, proc) => {
-                            if (e !== null) {
-                                reject(e);
-                            } else {
-                                resolve(proc.trim());
-                            }
-                        });
-                        break;
-                    default:
-                        reject("Unsupported OS");
+                if (process.platform === "win32") {
+                    reject("Unsupported OS");
+                    return;
+                }
+                try {
+                    resolve(require("path").basename(String(tty.process || "")));
+                } catch (e) {
+                    reject(e);
                 }
             });
         };

@@ -130,3 +130,12 @@ test("top processes shows a header row and process rows", async () => {
     await expect(page.locator("#mod_toplist_table th")).toHaveText(["PID", "NAME", "CPU", "MEM"]);
     await expect.poll(() => page.locator("#mod_toplist_table > tr").count()).toBeGreaterThan(0);
 });
+
+test("the tab shows the terminal's foreground process (Linux and macOS)", async () => {
+    test.skip(process.platform === "win32", "Windows has no way to read a terminal's foreground process");
+    const { app, page } = ctx;
+    await runCommand(app, "sleep 4");
+    await expect(page.locator("#shell_tab0")).toHaveText(/MAIN - sleep/);
+    // Back to the shell once it finishes
+    await expect(page.locator("#shell_tab0")).not.toHaveText(/sleep/, { timeout: 30000 });
+});
