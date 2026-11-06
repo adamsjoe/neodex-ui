@@ -163,78 +163,78 @@ class FilesystemDisplay {
 
             if (process.platform === "win32" && dir.endsWith(":")) dir = dir+"\\";
             let tcwd = dir;
-            let content = await this._asyncFSwrapper.readdir(tcwd).catch(err => {
+            let content;
+            try {
+                content = await this._asyncFSwrapper.readdir(tcwd);
+            } catch (err) {
+                // The directory itself can't be read
                 console.warn(err);
+                this._reading = false;
+                this.setFailedState();
                 if (this._noTracking === true && this.dirpath) { // #262
-                    this.setFailedState();
                     setTimeout(() => {
                         this.readFS(this.dirpath);
                     }, 1000);
-                } else {
-                    this.setFailedState();
                 }
-            });
+                return false;
+            }
 
             this.reCalculateDiskUsage(tcwd);
 
-            this.cwd = [];
+            // Stat every entry. A single entry failing must not fail the whole listing: files vanish between
+            // readdir and lstat all the time (e.g. in temp folders), and some are locked or unreadable.
+            const entries = await Promise.all(content.map(async file => {
+                let fstat;
+                try {
+                    fstat = await this._asyncFSwrapper.lstat(path.join(tcwd, file));
+                } catch (err) {
+                    if (err && err.code === "ENOENT") return null; // deleted since readdir: leave it out
+                    fstat = undefined; // locked/unreadable: shown as a hidden "system" entry below
+                }
 
-            await new Promise((resolve, reject) => {
-                if (content.length === 0) resolve();
+                let e = {
+                    name: window._escapeHtml(file),
+                    path: path.resolve(tcwd, file),
+                    type: "other",
+                    category: "other",
+                    hidden: false
+                };
 
-                content.forEach(async (file, i) => {
-                    let fstat = await this._asyncFSwrapper.lstat(path.join(tcwd, file)).catch(e => {
-                        if (!e.message.includes("EPERM") && !e.message.includes("EBUSY")) {
-                            reject();
-                        }
-                    });
+                if (typeof fstat !== "undefined") {
+                    e.lastAccessed = fstat.mtime.getTime();
 
-                    let e = {
-                        name: window._escapeHtml(file),
-                        path: path.resolve(tcwd, file),
-                        type: "other",
-                        category: "other",
-                        hidden: false
-                    };
+                    if (fstat.isDirectory()) {
+                        e.category = "dir";
+                        e.type = "dir";
+                    }
+                    if (e.category === "dir" && tcwd === settingsDir && file === "themes") e.type="edex-themesDir";
+                    if (e.category === "dir" && tcwd === settingsDir && file === "keyboards") e.type = "edex-kblayoutsDir";
 
-                    if (typeof fstat !== "undefined") {
-                        e.lastAccessed = fstat.mtime.getTime();
-
-                        if (fstat.isDirectory()) {
-                            e.category = "dir";
-                            e.type = "dir";
-                        }
-                        if (e.category === "dir" && tcwd === settingsDir && file === "themes") e.type="edex-themesDir";
-                        if (e.category === "dir" && tcwd === settingsDir && file === "keyboards") e.type = "edex-kblayoutsDir";
-
-                        if (fstat.isSymbolicLink()) {
-                            e.category = "symlink";
-                            e.type = "symlink";
-                        }
-
-                        if (fstat.isFile()) {
-                            e.category = "file";
-                            e.type = "file";
-                            e.size = fstat.size;
-                        }
-                    } else {
-                        e.type = "system";
-                        e.hidden = true;
+                    if (fstat.isSymbolicLink()) {
+                        e.category = "symlink";
+                        e.type = "symlink";
                     }
 
-                    if (e.category === "file" && tcwd === themesDir && file.endsWith(".json")) e.type = "edex-theme";
-                    if (e.category === "file" && tcwd === keyboardsDir && file.endsWith(".json")) e.type = "edex-kblayout";
-                    if (e.category === "file" && tcwd === settingsDir && file === "settings.json") e.type = "edex-settings";
-                    if (e.category === "file" && tcwd === settingsDir && file === "shortcuts.json") e.type = "edex-shortcuts";
+                    if (fstat.isFile()) {
+                        e.category = "file";
+                        e.type = "file";
+                        e.size = fstat.size;
+                    }
+                } else {
+                    e.type = "system";
+                    e.hidden = true;
+                }
 
-                    if (file.startsWith(".")) e.hidden = true;
+                if (e.category === "file" && tcwd === themesDir && file.endsWith(".json")) e.type = "edex-theme";
+                if (e.category === "file" && tcwd === keyboardsDir && file.endsWith(".json")) e.type = "edex-kblayout";
+                if (e.category === "file" && tcwd === settingsDir && file === "settings.json") e.type = "edex-settings";
+                if (e.category === "file" && tcwd === settingsDir && file === "shortcuts.json") e.type = "edex-shortcuts";
 
-                    this.cwd.push(e);
-                    if (i === content.length-1) resolve();
-                });
-            }).catch(() => { this.setFailedState() });
+                if (file.startsWith(".")) e.hidden = true;
 
-            if (this.failed) return false;
+                return e;
+            }));
+            this.cwd = entries.filter(e => e !== null);
 
             let ordering = {
                 dir: 0,
