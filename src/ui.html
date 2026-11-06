@@ -2,7 +2,7 @@
 <html>
     <head>
         <meta charset="utf-8" />
-        <meta http-equiv="Content-Security-Policy" content="default-src file: 'unsafe-inline'; img-src file: data:; media-src file:; connect-src file:">
+        <meta http-equiv="Content-Security-Policy" content="default-src file:; script-src file:; style-src file: 'unsafe-inline'; img-src file: data:; media-src file:; connect-src file:">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>neoDEX-UI</title>
 
@@ -35,12 +35,8 @@
         <link rel="stylesheet" href="assets/css/extra_ratios.css" />
 
         <!-- Load dependency js -->
-        <!-- pdf.js is ES-module only; expose it as the global DocReader expects -->
-        <script type="module">
-            import * as pdfjsLib from "./node_modules/pdfjs-dist/build/pdf.min.mjs";
-            pdfjsLib.GlobalWorkerOptions.workerSrc = "./node_modules/pdfjs-dist/build/pdf.worker.min.mjs";
-            window.pdfjsLib = pdfjsLib;
-        </script>
+        <!-- pdf.js is ES-module only; the loader exposes it as the global DocReader expects -->
+        <script type="module" src="pdfjs-loader.mjs"></script>
         <!-- ENCOM globe (vendored browserify bundle; sets window.ENCOM) -->
         <script src="assets/vendor/encom-globe.js"></script>
     </head>

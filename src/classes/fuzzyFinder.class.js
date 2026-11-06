@@ -28,6 +28,15 @@ class FuzzyFinder {
         
         this.input = document.getElementById("fuzzyFinder");
         this.results = document.getElementById("fuzzyFinder-results");
+
+        // Clicking a result selects it
+        this.results.addEventListener("click", event => {
+            const match = event.target.closest("[data-match]");
+            if (!match) return;
+            const selected = this.results.querySelector("li.fuzzyFinderMatchSelected");
+            if (selected) selected.removeAttribute("class");
+            match.setAttribute("class", "fuzzyFinderMatchSelected");
+        });
         
         this.input.addEventListener('input', e => {
             if ((e.inputType && e.inputType.startsWith("delete")) || (e.detail && e.detail.startsWith("delete"))) {
@@ -107,7 +116,7 @@ class FuzzyFinder {
          }
          let html = "";
          results.forEach((file, i) => {
-             html += `<li id="fuzzyFinderMatch-${i}" class="${(i === 0) ? 'fuzzyFinderMatchSelected' : ''}" onclick="document.querySelector('li.fuzzyFinderMatchSelected').removeAttribute('class');document.getElementById('fuzzyFinderMatch-${i}').setAttribute('class', 'fuzzyFinderMatchSelected')">${file.name}</li>`;
+             html += `<li id="fuzzyFinderMatch-${i}" class="${(i === 0) ? 'fuzzyFinderMatchSelected' : ''}" data-match="${i}">${file.name}</li>`;
         });
         if (results.length !== 5) {
             for (let i = results.length; i < 5; i++) {

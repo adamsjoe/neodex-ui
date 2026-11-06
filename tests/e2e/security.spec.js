@@ -58,6 +58,25 @@ test("page scripts cannot call eval()", async () => {
     expect(outcome).toMatch(/eval\(\) is disabled/);
 });
 
+test("no element uses inline event handler attributes", async () => {
+    // Inline handlers (onclick="...") need 'unsafe-inline' in the CSP; the UI wires listeners in code instead
+    const inline = await inPage(ctx.app, () => [...document.querySelectorAll("*")]
+        .flatMap(el => [...el.attributes].filter(a => /^on/i.test(a.name)).map(a => `${el.tagName.toLowerCase()}[${a.name}]`)));
+    expect(inline).toEqual([]);
+});
+
+test("the CSP blocks inline scripts", async () => {
+    const ran = await inPage(ctx.app, () => {
+        window.__inlineRan = false;
+        const script = document.createElement("script");
+        script.textContent = "window.__inlineRan = true;";
+        document.head.appendChild(script);
+        script.remove();
+        return window.__inlineRan;
+    });
+    expect(ran).toBe(false);
+});
+
 test("modal buttons use real listeners, not inline code", async () => {
     const { app, page } = ctx;
     await inPage(app, () => { window.openSettings(); });

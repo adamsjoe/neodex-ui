@@ -442,11 +442,11 @@ async function initUI() {
     let shellContainer = document.getElementById("main_shell");
     shellContainer.innerHTML += `
         <ul id="main_shell_tabs">
-            <li id="shell_tab0" onclick="window.focusShellTab(0);" class="active"><p>MAIN SHELL</p></li>
-            <li id="shell_tab1" onclick="window.focusShellTab(1);"><p>EMPTY</p></li>
-            <li id="shell_tab2" onclick="window.focusShellTab(2);"><p>EMPTY</p></li>
-            <li id="shell_tab3" onclick="window.focusShellTab(3);"><p>EMPTY</p></li>
-            <li id="shell_tab4" onclick="window.focusShellTab(4);"><p>EMPTY</p></li>
+            <li id="shell_tab0" data-tab="0" class="active"><p>MAIN SHELL</p></li>
+            <li id="shell_tab1" data-tab="1"><p>EMPTY</p></li>
+            <li id="shell_tab2" data-tab="2"><p>EMPTY</p></li>
+            <li id="shell_tab3" data-tab="3"><p>EMPTY</p></li>
+            <li id="shell_tab4" data-tab="4"><p>EMPTY</p></li>
         </ul>
         <div id="main_shell_innercontainer">
             <pre id="terminal0" class="active"></pre>
@@ -455,6 +455,10 @@ async function initUI() {
             <pre id="terminal3"></pre>
             <pre id="terminal4"></pre>
         </div>`;
+    document.getElementById("main_shell_tabs").addEventListener("click", event => {
+        const tab = event.target.closest("[data-tab]");
+        if (tab) window.focusShellTab(Number(tab.dataset.tab));
+    });
     window.term = {
         0: new Terminal({
             parentId: "terminal0",

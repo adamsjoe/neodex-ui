@@ -66,6 +66,19 @@ class FilesystemDisplay {
             }
         }, 1000);
 
+        // Clicks on entries and on the space bar run the action stored for them by render()
+        this._entryActions = [];
+        this._spaceBarAction = null;
+        this.filesContainer.addEventListener("click", event => {
+            const el = event.target.closest("[data-entry]");
+            if (!el || !this.filesContainer.contains(el)) return;
+            const action = this._entryActions[Number(el.dataset.entry)];
+            if (action) action();
+        });
+        document.getElementById("fs_space_bar").addEventListener("click", () => {
+            if (this._spaceBarAction) this._spaceBarAction();
+        });
+
         // The main process watches the current directory and tells us when its contents change
         neodex.on("fs-changed", dir => {
             if (dir === this.dirpath) this._runNextTick = true;
@@ -162,6 +175,7 @@ class FilesystemDisplay {
                 const file = entry.name;
                 let e = {
                     name: window._escapeHtml(file),
+                    rawName: file,
                     path: entry.path,
                     type: "other",
                     category: "other",
@@ -263,78 +277,49 @@ class FilesystemDisplay {
             }
 
             let filesDOM = ``;
+            this._entryActions = [];
             blockList.forEach((e, blockIndex) => {
                 let hidden = e.hidden ? " hidden" : "";
 
-                let cmdPrefix = `if (window.keyboard.container.dataset.isCtrlOn == "true") {
-                                window.neodex.invoke("shell-open-path", fsDisp.cwd[${blockIndex}].path);
-                            } else if (window.keyboard.container.dataset.isShiftOn == "true") {
-                                window.term[window.currentTerm].write("\\""+fsDisp.cwd[${blockIndex}].path+"\\"");
-                            } else {
-                          `.replace(/\n+ */g, ''); // Minify
+                const term = () => window.term[window.currentTerm];
+                const quoted = p => `"${p}"`;
+                const isDisk = e.type === "disk" || e.type === "rom" || e.type === "usb";
+                // Disk paths: drop backslashes ("C:\\" -> "C:"), as before
+                const diskPath = isDisk ? e.path.replace(/\\/g, "") : null;
 
-                let cmdSuffix = `}`;
-
-                let cmd;
-
+                let action = null;
                 if (!this._noTracking) {
                     if (e.type === "dir" || e.type.endsWith("Dir")) {
-                        cmd = `window.term[window.currentTerm].writelr("cd \\""+fsDisp.cwd[${blockIndex}].name+"\\"")`;
+                        action = () => term().writelr(`cd ${quoted(e.rawName)}`);
                     } else if (e.type === "up") {
-                        cmd = `window.term[window.currentTerm].writelr("cd ..")`;
-                    } else if (e.type === "disk" || e.type === "rom" || e.type === "usb") {
-                        if (window._platform === "win32") {
-                            cmd = `window.term[window.currentTerm].writelr("${e.path.replace(/\\/g, '')}")`;
-                        } else {
-                            cmd = `window.term[window.currentTerm].writelr("cd \\"${e.path.replace(/\\/g, '')}\\"")`;
-                        }
+                        action = () => term().writelr("cd ..");
+                    } else if (isDisk) {
+                        action = () => term().writelr(window._platform === "win32" ? diskPath : `cd ${quoted(diskPath)}`);
                     } else {
-                        cmd = `window.term[window.currentTerm].write("\\""+fsDisp.cwd[${blockIndex}].path+"\\"")`;
+                        action = () => term().write(quoted(e.path));
                     }
                 } else {
                     if (e.type === "dir" || e.type.endsWith("Dir")) {
-                        cmd = `window.fsDisp.readFS(fsDisp.cwd[${blockIndex}].path)`;
+                        action = () => this.readFS(e.path);
                     } else if (e.type === "up") {
-                        cmd = `window.fsDisp.readFS(window.fsDisp.parentPath)`;
-                    } else if (e.type === "disk" || e.type === "rom" || e.type === "usb") {
-                        cmd = `window.fsDisp.readFS("${e.path.replace(/\\/g, '')}")`;
+                        action = () => this.readFS(this.parentPath);
+                    } else if (isDisk) {
+                        action = () => this.readFS(diskPath);
                     } else {
-                        cmd = `window.term[window.currentTerm].write("\\""+fsDisp.cwd[${blockIndex}].path+"\\"")`;
+                        action = () => term().write(quoted(e.path));
                     }
                 }
 
-                if (e.type === "file") {
-                    cmd = `window.fsDisp.openFile(${blockIndex})`;
-                }
+                if (e.type === "file") action = () => this.openFile(blockIndex);
+                if (e.type === "system") action = null;
+                if (e.type === "showDisks") action = () => this.readDevices();
+                if (e.type === "edex-theme") action = () => window.themeChanger(e.rawName.slice(0, -5));
+                if (e.type === "edex-kblayout") action = () => window.remakeKeyboard(e.rawName.slice(0, -5));
+                if (e.type === "edex-settings") action = () => window.openSettings();
+                if (e.type === "edex-shortcuts") action = () => window.openShortcutsHelp();
 
-                if (e.type === "system") {
-                    cmd = "";
-                }
-
-                if (e.type === "showDisks") {
-                    cmd = `window.fsDisp.readDevices()`;
-                    cmdPrefix = '';
-                    cmdSuffix = '';
-                }
-
-                if (e.type === "up") {
-                    // cmd is OS-specific and defined above
-                    cmdPrefix = '';
-                    cmdSuffix = '';
-                }
-
-                if (e.type === "edex-theme") {
-                    cmd = `window.themeChanger("${e.name.slice(0, -5)}")`;
-                }
-                if (e.type === "edex-kblayout") {
-                    cmd = `window.remakeKeyboard("${e.name.slice(0, -5)}")`;
-                }
-                if (e.type === "edex-settings") {
-                    cmd = `window.openSettings()`;
-                }
-                if (e.type === "edex-shortcuts") {
-                    cmd = `window.openShortcutsHelp()`;
-                }
+                // Ctrl+click opens the entry with the system's default app; Shift+click types its path
+                const withModifiers = (e.type === "showDisks" || e.type === "up") ? false : true;
 
                 let icon = "";
                 let type = "";
@@ -409,8 +394,19 @@ class FilesystemDisplay {
                 // Handle displayable media
                 if (e.type === 'video' || e.type === 'audio' || e.type === 'image') {
                     this.cwd[blockIndex].type = e.type;
-                    cmd = `window.fsDisp.openMedia(${blockIndex})`;
+                    action = () => this.openMedia(blockIndex);
                 }
+
+                this._entryActions[blockIndex] = action === null ? null : () => {
+                    const kb = window.keyboard.container.dataset;
+                    if (withModifiers && kb.isCtrlOn == "true") {
+                        window.neodex.invoke("shell-open-path", e.path);
+                    } else if (withModifiers && kb.isShiftOn == "true") {
+                        term().write(quoted(e.path));
+                    } else {
+                        action();
+                    }
+                };
 
                 if (typeof e.size === "number") {
                     e.size = this._formatBytes(e.size);
@@ -423,11 +419,11 @@ class FilesystemDisplay {
                     e.lastAccessed = "--";
                 }
 
-                filesDOM += `<div class="fs_disp_${e.type}${hidden} animationWait" onclick='${cmdPrefix+cmd+cmdSuffix}'>
+                filesDOM += `<div class="fs_disp_${e.type}${hidden} animationWait" data-entry="${blockIndex}">
                                 <svg viewBox="0 0 ${icon.width} ${icon.height}" fill="${this.iconcolor}">
                                     ${icon.svg}
                                 </svg>
-                                <h3>${e.name}</h3>
+                                <h3>${window._escapeHtml(e.rawName !== undefined ? e.rawName : e.name)}</h3>
                                 <h4>${type}</h4>
                                 <h4>${e.size}</h4>
                                 <h4>${e.lastAccessed}</h4>
@@ -435,11 +431,10 @@ class FilesystemDisplay {
             });
             this.filesContainer.innerHTML = filesDOM;
 
-            if (this.filesContainer.getAttribute("class").endsWith("disks")) {
-                document.getElementById("fs_space_bar").setAttribute("onclick", "window.fsDisp.render(window.fsDisp.cwd)");
-            } else {
-                document.getElementById("fs_space_bar").setAttribute("onclick", "");
-            }
+            // In the disks view, clicking the space bar goes back to the file list
+            this._spaceBarAction = this.filesContainer.getAttribute("class").endsWith("disks")
+                ? () => this.render(this.cwd)
+                : null;
 
             // Render animation
             let id = 0;
@@ -475,7 +470,7 @@ class FilesystemDisplay {
         };
 
         this.renderDiskUsage = async fsBlock => {
-            if (document.getElementById("fs_space_bar").getAttribute("onclick") !== "" || fsBlock === null) return;
+            if (this._spaceBarAction || fsBlock === null) return;
 
             let splitter = (window._platform === "win32") ? "\\" : "/";
             let displayMount = (fsBlock.mount.length < 18) ? fsBlock.mount : "..."+splitter+fsBlock.mount.split(splitter).pop();
