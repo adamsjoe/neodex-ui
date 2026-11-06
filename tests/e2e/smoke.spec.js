@@ -74,6 +74,14 @@ test("settings dialog opens and its buttons work", async () => {
     await expect(page.locator("#settingsEditor")).toHaveCount(0);
 });
 
+test("system information is gathered in utility processes, not the main process", async () => {
+    // Several systeminformation calls block (synchronous child processes on Windows); in the main process
+    // they froze terminal I/O every couple of seconds
+    const workers = await ctx.app.evaluate(({ app }) =>
+        app.getAppMetrics().filter(m => m.type === "Utility" && m.name === "neoDEX-UI systeminformation").length);
+    expect(workers).toBeGreaterThanOrEqual(1);
+});
+
 test("top processes shows a header row and process rows", async () => {
     const { page } = ctx;
     await expect(page.locator("#mod_toplist_table th")).toHaveText(["PID", "NAME", "CPU", "MEM"]);

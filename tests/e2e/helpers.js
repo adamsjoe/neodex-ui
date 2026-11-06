@@ -77,9 +77,21 @@ async function launchApp({ settings = {} } = {}) {
         page,
         userData,
         pageErrors,
+        /** Quits the app. If it hasn't exited within 30s, kills it and fails with its output. */
         async close() {
-            await app.close().catch(() => {});
+            let timer;
+            const quit = app.close().then(() => "closed", () => "closed");
+            const timeout = new Promise(resolve => { timer = setTimeout(() => resolve("timeout"), 30 * 1000); });
+            const outcome = await Promise.race([quit, timeout]);
+            clearTimeout(timer);
+            if (outcome === "timeout") killProcessTree(app.process().pid);
             fs.rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+            if (outcome === "timeout") {
+                throw new Error(`app did not quit within 30s and was killed
+
+--- app output (last 20 KB) ---
+${log || "(none)"}`);
+            }
         }
     };
 }
@@ -96,6 +108,18 @@ async function clickModalButton(app, label) {
         return true;
     }, label);
     expect(clicked, `modal button "${label}" should exist`).toBe(true);
+}
+
+function killProcessTree(pid) {
+    try {
+        if (process.platform === "win32") {
+            require("child_process").execSync(`taskkill /pid ${pid} /T /F`, { stdio: "ignore" });
+        } else {
+            process.kill(pid, "SIGKILL");
+        }
+    } catch (e) {
+        // already gone
+    }
 }
 
 /** Full text of a terminal's buffer (scrollback included). */
