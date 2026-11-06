@@ -3,8 +3,8 @@ class LocationGlobe {
         if (!parentId) throw "Missing parameters";
 
 
-        this._geodata = require("./assets/misc/grid.json");
-        require("./assets/vendor/encom-globe.js");
+        this._geodata = require("../assets/misc/grid.json");
+        // window.ENCOM comes from assets/vendor/encom-globe.js, loaded by ui.html
         this.ENCOM = window.ENCOM;
 
         // Create DOM and include lib

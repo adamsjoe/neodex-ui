@@ -50,7 +50,7 @@ const ipc = electron.ipcMain;
 const path = require("path");
 const fs = require("fs");
 const which = require("which");
-const Terminal = require("./classes/terminal.class.js").Terminal;
+const { TerminalServer } = require("./terminalServer.js");
 const {defaultSettings, defaultShortcuts} = require("./_defaults.js");
 
 var win, tty, extraTtys;
@@ -339,8 +339,7 @@ app.on('ready', async () => {
     }, settings.env);
 
     signale.pending(`Creating new terminal process`);
-    tty = new Terminal({
-        role: "server",
+    tty = new TerminalServer({
         id: 0,
         shell: settings.shell,
         params: settings.shellArgs || '',
@@ -383,9 +382,8 @@ app.on('ready', async () => {
         }
 
         signale.pending(`Creating new TTY process #${id}`);
-        let term = new Terminal({
-            role: "server",
-            id: Number(id),
+        let term = new TerminalServer({
+                id: Number(id),
             shell: settings.shell,
             params: settings.shellArgs || '',
             // Start where the main shell is, unless that directory has since been deleted

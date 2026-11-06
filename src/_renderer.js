@@ -31,9 +31,9 @@ if (!boot) throw new Error("Could not retrieve startup data from main process");
 window._appInfo = boot.appInfo;
 window._platform = boot.platform;
 // Config directories (native paths; the file browser compares them with the directory it shows)
-const settingsDir = boot.dirs.userData;
-const themesDir = boot.dirs.themes;
-const keyboardsDir = boot.dirs.keyboards;
+const settingsDir = window.settingsDir = boot.dirs.userData;
+const themesDir = window.themesDir = boot.dirs.themes;
+const keyboardsDir = window.keyboardsDir = boot.dirs.keyboards;
 
 // Load config
 window.settings = boot.settings;
@@ -457,7 +457,6 @@ async function initUI() {
         </div>`;
     window.term = {
         0: new Terminal({
-            role: "client",
             parentId: "terminal0",
             id: 0
         })
@@ -550,7 +549,6 @@ window.focusShellTab = number => {
                 let id = Number(r.substr(9));
 
                 window.term[number] = new Terminal({
-                    role: "client",
                     parentId: "terminal"+number,
                     id
                 });

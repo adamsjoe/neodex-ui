@@ -41,32 +41,14 @@
             pdfjsLib.GlobalWorkerOptions.workerSrc = "./node_modules/pdfjs-dist/build/pdf.worker.min.mjs";
             window.pdfjsLib = pdfjsLib;
         </script>
-        <!-- Load main modules classes -->
-        <script src="classes/modal.class.js"></script>
-        <script src="classes/terminal.class.js"></script>
-        <script src="classes/docReader.class.js"></script>
-        <script src="classes/mediaPlayer.class.js"></script>
-        <script src="classes/filesystem.class.js"></script>
-        <script src="classes/keyboard.class.js"></script>
-        <script src="classes/updateChecker.class.js"></script>
-        <!-- Load secondary modules classes -->
-        <script src="classes/clock.class.js"></script>
-        <script src="classes/sysinfo.class.js"></script>
-        <script src="classes/hardwareInspector.class.js"></script>
-        <script src="classes/cpuinfo.class.js"></script>
-        <script src="classes/netstat.class.js"></script>
-        <script src="classes/conninfo.class.js"></script>
-        <script src="classes/locationGlobe.class.js"></script>
-        <script src="classes/ramwatcher.class.js"></script>
-        <script src="classes/toplist.class.js"></script>
-        <script src="classes/fuzzyFinder.class.js"></script>
-        <!-- Load extra classes -->
-        <script src="classes/audiofx.class.js"></script>
+        <!-- ENCOM globe (vendored browserify bundle; sets window.ENCOM) -->
+        <script src="assets/vendor/encom-globe.js"></script>
     </head>
     <body class="solidBackground">
         <section id="boot_screen">
         </section>
 
-        <script src="_renderer.js"></script>
+        <!-- The UI: classes and _renderer.js, bundled by scripts/build-renderer.js -->
+        <script src="build/renderer.js"></script>
     </body>
 </html>

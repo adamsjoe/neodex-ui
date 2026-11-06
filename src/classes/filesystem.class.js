@@ -8,8 +8,8 @@ class FilesystemDisplay {
         this.cwd_path = null;
         this.iconcolor = `rgb(${window.theme.r}, ${window.theme.g}, ${window.theme.b})`;
         this._formatBytes = (a,b) => {if(0==a)return"0 Bytes";var c=1024,d=b||2,e=["Bytes","KB","MB","GB","TB","PB","EB","ZB","YB"],f=Math.floor(Math.log(a)/Math.log(c));return parseFloat((a/Math.pow(c,f)).toFixed(d))+" "+e[f]};
-        this.fileIconsMatcher = require("./assets/misc/file-icons-match.js");
-        this.icons = require("./assets/icons/file-icons.json");
+        this.fileIconsMatcher = require("../assets/misc/file-icons-match.js");
+        this.icons = require("../assets/icons/file-icons.json");
         this.edexIcons = {
             theme: {
                 width: 24,
@@ -179,14 +179,14 @@ class FilesystemDisplay {
                         e.type = entry.kind;
                     }
                     if (entry.kind === "file") e.size = entry.size;
-                    if (e.category === "dir" && tcwd === settingsDir && file === "themes") e.type = "edex-themesDir";
-                    if (e.category === "dir" && tcwd === settingsDir && file === "keyboards") e.type = "edex-kblayoutsDir";
+                    if (e.category === "dir" && tcwd === window.settingsDir && file === "themes") e.type = "edex-themesDir";
+                    if (e.category === "dir" && tcwd === window.settingsDir && file === "keyboards") e.type = "edex-kblayoutsDir";
                 }
 
-                if (e.category === "file" && tcwd === themesDir && file.endsWith(".json")) e.type = "edex-theme";
-                if (e.category === "file" && tcwd === keyboardsDir && file.endsWith(".json")) e.type = "edex-kblayout";
-                if (e.category === "file" && tcwd === settingsDir && file === "settings.json") e.type = "edex-settings";
-                if (e.category === "file" && tcwd === settingsDir && file === "shortcuts.json") e.type = "edex-shortcuts";
+                if (e.category === "file" && tcwd === window.themesDir && file.endsWith(".json")) e.type = "edex-theme";
+                if (e.category === "file" && tcwd === window.keyboardsDir && file.endsWith(".json")) e.type = "edex-kblayout";
+                if (e.category === "file" && tcwd === window.settingsDir && file === "settings.json") e.type = "edex-settings";
+                if (e.category === "file" && tcwd === window.settingsDir && file === "shortcuts.json") e.type = "edex-shortcuts";
 
                 if (file.startsWith(".")) e.hidden = true;
 
