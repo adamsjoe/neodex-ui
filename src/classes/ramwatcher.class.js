@@ -39,7 +39,12 @@ class RAMwatcher {
         if (this.currentlyUpdating) return;
         this.currentlyUpdating = true;
         window.si.mem().then(data => {
-            if (data.free+data.used !== data.total) throw("RAM Watcher Error: Bad memory values");
+            // (systeminformation reads free memory twice, so free + used can be slightly off total while memory
+            // use is changing. That used to throw here, showing an error dialog and stopping this panel for good.)
+            if (!data || !data.total) {
+                this.currentlyUpdating = false;
+                return;
+            }
 
             // Convert the data for the 440-points grid
             let active = Math.round((440*data.active)/data.total);
