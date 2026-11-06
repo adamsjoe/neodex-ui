@@ -368,7 +368,8 @@ app.on('ready', async () => {
             id: Number(id),
             shell: settings.shell,
             params: settings.shellArgs || '',
-            cwd: tty.tty._cwd || settings.cwd,
+            // Start where the main shell is, unless that directory has since been deleted
+            cwd: [tty.tty._cwd, settings.cwd].find(dir => dir && fs.existsSync(dir)) || require("os").homedir(),
             env: cleanEnv,
             isTrustedSender
         });
