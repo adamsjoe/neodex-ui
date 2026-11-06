@@ -33,7 +33,8 @@ The upstream GitHub Actions workflows were removed in November 2026: they target
 
 ## Branding
 
-- [ ] New logo (`media/logo.png`, `media/logo.svg`) and app icons (`media/icon.ico`, `media/icon.icns`, `media/linuxIcons/`). They still show eDEX-UI.
+- [x] Interim neoDEX-UI wordmark and app icons, generated from hand-drawn glyphs by `scripts/icons/` (no font outlines, so no font-licence concerns).
+- [ ] Optional: a properly designed logo and icon set to replace the interim ones (regenerate the PNG/ICO/ICNS with `scripts/icons/render.js`).
 - [ ] Optional: one-time import of settings/themes from an existing eDEX-UI config dir.
 
 ## Smaller items

@@ -1,6 +1,6 @@
 <p align="center">
   <br>
-  <img alt="Logo" src="media/logo.png">
+  <img alt="neoDEX-UI" src="media/logo-wordmark.svg" width="430">
   <br><br>
   <a href="https://github.com/adamsjoe/neodex-ui/blob/master/LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/github/license/adamsjoe/neodex-ui.svg?style=popout"></a>
   <br><br>
