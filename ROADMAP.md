@@ -8,7 +8,8 @@ The upstream GitHub Actions workflows were removed in November 2026: they target
 
 - [x] **Tests on every push/PR** (`.github/workflows/test.yml`): unit + end-to-end on Windows, macOS and Linux runners.
 - [x] **Release builds** (`.github/workflows/release.yml`): pushing a tag `vX.Y.Z` that matches package.json builds the installers on all three OSes, runs the end-to-end suite against each packaged app, and creates a draft GitHub release with them attached.
-- [ ] **Code signing** (Windows SmartScreen / macOS Gatekeeper): needs a Windows code-signing certificate and an Apple Developer ID.
+- [ ] **Code signing** (Windows SmartScreen / macOS Gatekeeper): options, costs and the work involved are in [docs/SIGNING.md](docs/SIGNING.md). Needs accounts only the maintainer can get.
+- [ ] **Release checksums**: attach SHA-256 checksums to each release (free; see docs/SIGNING.md).
 - [ ] **CodeQL** (v3) for JavaScript, on push to `master` and weekly.
 - [ ] Turn on **Dependabot alerts** and **private vulnerability reporting** in the repo settings (no workflow needed; `SECURITY.md` already points at private reporting).
 
