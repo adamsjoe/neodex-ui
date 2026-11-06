@@ -11,6 +11,7 @@ const https = require("https");
 const { app, shell } = require("electron");
 const { pathToFileURL } = require("url");
 const signale = require("signale");
+const { loadConfig } = require("./_config.js");
 
 /**
  * @param {object} deps
@@ -44,19 +45,24 @@ module.exports = function registerApi({ handleTrusted, onSyncTrusted, getWindow 
     const listJson = dir => fs.readdirSync(dir).filter(f => f.endsWith(".json")).map(f => f.slice(0, -5));
 
     // ---- Startup data, read synchronously by the preload before the UI scripts run
-    onSyncTrusted("boot-data", () => ({
-        appInfo: { version: app.getVersion(), userData, argv: process.argv },
-        dirs: { userData, themes: dirs.themes, keyboards: dirs.keyboards, fonts: dirs.fonts },
-        platform: process.platform,
-        versions: { electron: process.versions.electron },
-        isArch: process.platform === "linux" && (() => {
-            try { return fs.readFileSync("/etc/os-release", "utf-8").includes("arch"); } catch (e) { return false; }
-        })(),
-        fontsUrl: pathToFileURL(dirs.fonts).href,
-        settings: readJson(files.settings),
-        shortcuts: readJson(files.shortcuts),
-        lastWindowState: readJson(files.lastWindowState)
-    }));
+    onSyncTrusted("boot-data", () => {
+        const config = loadConfig();
+        return {
+            appInfo: { version: app.getVersion(), userData, argv: process.argv },
+            dirs: { userData, themes: dirs.themes, keyboards: dirs.keyboards, fonts: dirs.fonts },
+            platform: process.platform,
+            versions: { electron: process.versions.electron },
+            isArch: process.platform === "linux" && (() => {
+                try { return fs.readFileSync("/etc/os-release", "utf-8").includes("arch"); } catch (e) { return false; }
+            })(),
+            fontsUrl: pathToFileURL(dirs.fonts).href,
+            settings: config.settings,
+            shortcuts: config.shortcuts,
+            lastWindowState: config.lastWindowState,
+            // Problems found in the config files (shown to the user; defaults are used meanwhile)
+            configProblems: config.problems
+        };
+    });
 
     // ---- Config
     handleTrusted("settings-save", (e, settings) => {

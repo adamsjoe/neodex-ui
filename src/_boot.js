@@ -52,6 +52,7 @@ const fs = require("fs");
 const which = require("which");
 const { TerminalServer } = require("./terminalServer.js");
 const {defaultSettings, defaultShortcuts} = require("./_defaults.js");
+const {loadConfig} = require("./_config.js");
 
 var win, tty, extraTtys;
 
@@ -166,7 +167,13 @@ fs.readdirSync(innerFontsDir).forEach(e => {
 
 // Version history logging
 const versionHistoryPath = path.join(electron.app.getPath("userData"), "versions_log.json");
-var versionHistory = fs.existsSync(versionHistoryPath) ? require(versionHistoryPath) : {};
+var versionHistory = {};
+try {
+    versionHistory = JSON.parse(fs.readFileSync(versionHistoryPath, "utf-8"));
+    if (typeof versionHistory !== "object" || versionHistory === null || Array.isArray(versionHistory)) versionHistory = {};
+} catch (e) {
+    // missing or unreadable: start a new log
+}
 var version = app.getVersion();
 if (typeof versionHistory[version] === "undefined") {
 	versionHistory[version] = {
@@ -226,7 +233,7 @@ function createWindow(settings) {
     win.show();
     if (!settings.allowWindowed) {
         win.setResizable(false);
-    } else if (!require(lastWindowStateFile)["useFullscreen"]) {
+    } else if (!loadConfig().lastWindowState.useFullscreen) {
         win.setFullScreen(false);
     }
 
@@ -321,13 +328,15 @@ onTrusted("shortcuts-unregister", () => globalShortcut.unregisterAll());
 
 app.on('ready', async () => {
     signale.pending(`Loading settings file...`);
-    let settings = require(settingsFile);
+    // A broken or incomplete config file falls back to defaults (the UI shows the problems)
+    const config = loadConfig();
+    config.problems.forEach(problem => signale.warn(problem));
+    let settings = config.settings;
     signale.pending(`Resolving shell path...`);
     settings.shell = await which(settings.shell).catch(e => { throw(e) });
     signale.info(`Shell found at ${settings.shell}`);
     signale.success(`Settings loaded!`);
 
-    if (!require("fs").existsSync(settings.cwd)) throw new Error("Configured cwd path does not exist.");
 
     // See #366
     let cleanEnv = await require("shell-env")(settings.shell).catch(e => { throw e; });

@@ -42,13 +42,14 @@ async function waitInPage(app, fn, arg, { timeout = 15000, message } = {}) {
  * Launches neoDEX-UI with an isolated config directory (never the user's real settings).
  * Resolves once the UI has finished booting. Collects uncaught page errors in `pageErrors`.
  */
-async function launchApp({ settings = {} } = {}) {
+async function launchApp({ settings = {}, rawSettings } = {}) {
     const userData = fs.mkdtempSync(path.join(os.tmpdir(), "neodex-test-"));
     const allSettings = Object.assign(defaultSettings({ platform: process.platform, userData }), {
         audio: false,
         nointro: true
     }, settings);
-    fs.writeFileSync(path.join(userData, "settings.json"), JSON.stringify(allSettings, null, 4));
+    // rawSettings: write settings.json exactly as given (e.g. to test broken files)
+    fs.writeFileSync(path.join(userData, "settings.json"), rawSettings !== undefined ? rawSettings : JSON.stringify(allSettings, null, 4));
     fs.writeFileSync(path.join(userData, "shortcuts.json"), JSON.stringify(defaultShortcuts(), null, 4));
 
     const app = await electron.launch(appLaunchOptions(Object.assign({}, process.env, {

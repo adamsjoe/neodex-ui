@@ -27,7 +27,7 @@ The upstream GitHub Actions workflows were removed in November 2026: they target
 ## Upgrades and platforms
 
 - [x] Packaging verified: `npm run package` builds the Windows (NSIS), macOS (dmg, x64 + arm64) and Linux (AppImage) installers, and CI runs the end-to-end suite against each packaged app and uploads the installers.
-- [ ] Test on macOS and Linux. macOS: tab process names use `ps --no-headers`, which BSD `ps` doesn't support.
+- [x] macOS and Linux tested in CI (from source and packaged); tab names use node-pty's foreground process, which works on macOS too.
 - [ ] Replace `geolite2-redist` (deprecated; MaxMind licensing changed) for the globe's GeoIP lookups.
 - [ ] Review the 8 `npm audit` findings at the root.
 - [ ] Revisit `@xterm/addon-webgl` in a later release (0.19 ignores the bundled web fonts).
@@ -41,6 +41,6 @@ The upstream GitHub Actions workflows were removed in November 2026: they target
 ## Smaller items
 
 - [x] Keep the in-app PDF viewer (pdf.js 6, running in the isolated page; covered by the end-to-end tests).
-- [ ] Load config files without `require()`, so a typo in `settings.json` shows an error instead of crashing.
+- [x] Config files are parsed safely (`src/lib/config.js`): invalid JSON or the wrong shape falls back to defaults with a warning in the UI, missing keys get defaults, and a missing `cwd` falls back to the home folder.
 - [ ] Stop overwriting the built-in themes on every start.
-- [ ] Settings validation and versioning.
+- [ ] Validate individual setting values (types/ranges) and version the settings format.

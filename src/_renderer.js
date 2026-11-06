@@ -488,6 +488,16 @@ async function initUI() {
 
     await _delay(200);
 
+    // Problems in the config files: the app started with defaults instead, so say what's wrong
+    if (boot.configProblems && boot.configProblems.length > 0) {
+        new Modal({
+            type: "warning",
+            title: "Configuration problem",
+            message: boot.configProblems.map(p => window._escapeHtml(p)).join("<br>")
+                + "<br><br>Fix the file (Settings: Ctrl+Shift+S, \"Open in External Editor\") and restart."
+        });
+    }
+
     window.updateCheck = new UpdateChecker();
 }
 
