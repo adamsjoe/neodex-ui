@@ -26,19 +26,34 @@ While keeping a futuristic look and feel, it strives to maintain a certain level
 
 Modified from eDEX-UI v2.2.8, starting November 2026. The main changes so far:
 
-- **Security:** the terminal no longer uses a local WebSocket server (any web page could connect to it and drive your shell); it uses Electron IPC instead. `@electron/remote` has been removed, and several HTML/JS injection paths (file contents, file names, process names, settings values) are fixed.
+- **Security:** the terminal no longer uses a local WebSocket server (any web page could connect to it and drive your shell); it uses Electron IPC instead. The UI runs isolated and sandboxed with no Node.js access, reaching the system only through a small allowlisted API, and a strict Content Security Policy blocks inline scripts and `eval()`. Several HTML/JS injection paths (file contents, file names, process names, settings values) are fixed.
 - **Up-to-date stack:** Electron 45, node-pty 1.1 (prebuilt binaries, no C++ toolchain needed on Windows or macOS), xterm.js 6, pdf.js 6, systeminformation 5.33.
+- **Settings editor:** a proper editor with validation and a live theme picker, instead of a table of text boxes (see [Settings](#settings)). A broken `settings.json` no longer stops the app from starting.
 - **Windows:** the file browser now follows the terminal's working directory (PowerShell and cmd shell integration), and the window/layout sizing bugs on 16:10 displays are fixed.
+- **Tested:** unit and end-to-end tests run on Windows, macOS and Linux for every change, including against the packaged installers.
 
-See the commit history for details.
+See the [releases](https://github.com/adamsjoe/neodex-ui/releases) and the commit history for details.
 
 ## Features
 - Fully featured terminal emulator with tabs, colors, mouse events, and support for `curses` and `curses`-like applications.
 - Real-time system (CPU, RAM, swap, processes) and network (GeoIP, active connections, transfer rates) monitoring.
 - Full support for touch-enabled displays, including an on-screen keyboard.
 - Directory viewer that follows the CWD (current working directory) of the terminal.
+- Settings editor with validation, and a theme picker that previews themes live.
 - Advanced customization using themes, on-screen keyboard layouts, CSS injections. The original [eDEX-UI wiki](https://github.com/GitSquared/edex-ui/wiki) still largely applies.
 - Optional sound effects made by a talented sound designer for maximum hollywood hacking vibe.
+
+## Settings
+
+Press **Ctrl+Shift+S** (or click `settings.json` in the file browser, in the config directory) to open the settings editor.
+
+- Settings are grouped into **Shell**, **Appearance**, **Sound**, **Behaviour**, **Network** and **Advanced** tabs, with a short explanation for each.
+- Values are **checked as you type**: problems are shown next to the setting, and nothing is saved until everything is valid.
+- Each setting shows whether it applies after a **reload** of the UI or a **restart**. After saving, the editor offers the one that's needed.
+- **Themes:** on the Appearance tab, click a theme to preview it on the whole UI and the terminals straight away. Close the editor to undo, or save to keep it. (The graphs and the globe switch colours after the reload.)
+- **Open settings.json** opens the file in your editor, for anything the form doesn't cover.
+
+Settings are stored in the app's config directory (see [Where are my settings?](#where-are-my-settings)). If the file is broken or a setting is missing, the app starts with the defaults and tells you what was wrong.
 
 ## Screenshots
 These screenshots are of the original eDEX-UI 2.2.
@@ -61,7 +76,9 @@ _Editing source code with `nvim`, with the custom [`horizon-full`](https://githu
 
 ## Q&A
 #### How do I get it?
-There are no release builds yet. For now, run it from source (see below).
+Download the installer for your system from the [releases page](https://github.com/adamsjoe/neodex-ui/releases): Windows (`.exe`), macOS (`.dmg`, Intel or Apple Silicon) or Linux (`.AppImage`, run `chmod +x` on it first). Or run it from source (see below).
+
+The installers aren't code-signed yet, so Windows SmartScreen will warn about an unrecognised app (click *More info*, then *Run anyway*), and on macOS you'll need to right-click the app and choose *Open* the first time.
 #### I have a problem!
 Search through the [Issues](https://github.com/adamsjoe/neodex-ui/issues) to see if yours has already been reported. If not, feel free to open a new one.
 #### Can you disable the keyboard/the filesystem display?
@@ -80,14 +97,20 @@ npm install
 npm start
 ```
 
-`npm install` also installs the app's own dependencies in `src/`, and Electron downloads itself the first time you start the app. On Linux, node-pty has no prebuilt binary, so you need a C++ toolchain and to allow its build script (`npm approve-scripts node-pty`).
+`npm install` also installs the app's own dependencies in `src/`, and Electron downloads itself the first time you start the app. On Linux, node-pty has no prebuilt binary and is compiled during `npm install`, so you need a C++ toolchain (`build-essential` and Python).
+
+`npm start` builds the UI bundle (`src/build/renderer.js`) and starts the app. Use `npm run build:renderer -- --watch` to rebuild the UI as you edit it.
+
+#### Testing
+- `npm test` runs the unit tests (`node:test`, under a second) and then the end-to-end tests ([Playwright](https://playwright.dev), about a minute; the app opens fullscreen while they run).
+- `npm run test:unit` or `npm run test:e2e` runs one of them.
+
+See [tests/e2e/README.md](tests/e2e/README.md) for how the end-to-end tests work.
 
 #### Building
-Packaging hasn't been verified since the upgrade to Electron 45. The previous scripts are still there:
+`npm run package` builds the installer for the OS you're on (Windows NSIS `.exe`, macOS `.dmg` for Intel and Apple Silicon, Linux `.AppImage`) in `dist/`. `npm run package:dir` builds just the unpacked app.
 
-- `npm run build-linux`, `build-windows` or `build-darwin`
-
-They minify the source code and create distributable assets in the `dist` folder. You can only build targets for the host OS you are using.
+Releases are built by CI: pushing a tag `vX.Y.Z` that matches the version in `package.json` builds and tests the installers on all three systems, then creates a draft GitHub release with them attached and release notes generated from the commits.
 
 ## Credits
 neoDEX-UI is maintained by [Joseph Adams](https://github.com/adamsjoe).
